@@ -1,0 +1,41 @@
+/**:
+  ros__parameters:
+    port: <foxglove_port>
+    address: <foxglove_address>
+    num_threads: 2
+    send_buffer_limit: 1000000
+    max_qos_depth: 5
+    topic_whitelist:
+    - ^/<robot_namespace>/fmu/in/offboard_control_mode$
+    - ^/<robot_namespace>/fmu/in/trajectory_setpoint$
+    - ^/<robot_namespace>/fmu/in/vehicle_command$
+    - ^/<robot_namespace>/fmu/out/battery_status$
+    - ^/<robot_namespace>/fmu/out/vehicle_local_position$
+    - ^/<robot_namespace>/fmu/out/vehicle_odometry$
+    - ^/<robot_namespace>/fmu/out/vehicle_status$
+    - ^/<robot_namespace>/mission_path$
+    - ^/<robot_namespace>/mission_progress$
+    - ^/<robot_namespace>/navsat$
+    - ^/<robot_namespace>/odom$
+    - ^/<robot_namespace>/tf$
+    - ^/<robot_namespace>/tf_static$
+    - ^/<robot_namespace>/waypoints_geo$
+    - ^/clock$
+    - ^/rosout$
+    best_effort_qos_topic_whitelist:
+    - ^/<robot_namespace>/fmu/in/offboard_control_mode$
+    - ^/<robot_namespace>/fmu/in/trajectory_setpoint$
+    - ^/<robot_namespace>/fmu/in/vehicle_command$
+    - ^/<robot_namespace>/fmu/out/battery_status$
+    - ^/<robot_namespace>/fmu/out/vehicle_local_position$
+    - ^/<robot_namespace>/fmu/out/vehicle_odometry$
+    - ^/<robot_namespace>/fmu/out/vehicle_status$
+    - ^/<robot_namespace>/navsat$
+    client_topic_whitelist:
+    - ^/<robot_namespace>/clicked_point$
+    - ^/<robot_namespace>/goal_pose$
+    - ^/<robot_namespace>/initialpose$
+    capabilities:
+    - clientPublish
+    - connectionGraph
+    - assets

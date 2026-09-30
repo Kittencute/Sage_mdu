@@ -1,0 +1,33 @@
+/<robot_namespace>/tf_static:
+  depth: 1
+  durability: transient_local
+/<robot_namespace>/navsat:
+  depth: 10
+  reliability: best_effort
+/<robot_namespace>/waypoints_geo:
+  depth: 1
+  durability: transient_local
+/<robot_namespace>/mission_path:
+  depth: 1
+  durability: transient_local
+/<robot_namespace>/fmu/out/vehicle_odometry:
+  depth: 10
+  reliability: best_effort
+/<robot_namespace>/fmu/out/vehicle_status:
+  depth: 10
+  reliability: best_effort
+/<robot_namespace>/fmu/out/vehicle_local_position:
+  depth: 10
+  reliability: best_effort
+/<robot_namespace>/fmu/out/battery_status:
+  depth: 10
+  reliability: best_effort
+/<robot_namespace>/fmu/in/offboard_control_mode:
+  depth: 10
+  reliability: best_effort
+/<robot_namespace>/fmu/in/trajectory_setpoint:
+  depth: 10
+  reliability: best_effort
+/<robot_namespace>/fmu/in/vehicle_command:
+  depth: 10
+  reliability: best_effort

@@ -1,0 +1,11 @@
+--- a/src/ground_segmentation_ros2_node.cpp
++++ b/src/ground_segmentation_ros2_node.cpp
+@@ -71,7 +71,7 @@
+         }
+         else {
+             subscriber_pointcloud = this->create_subscription<sensor_msgs::msg::PointCloud2>(
+-                "/ground_segmentation/input_pointcloud", 10, std::bind(&GroundSegmentatioNode::callback, this, std::placeholders::_1));
++                "/ground_segmentation/input_pointcloud", rclcpp::SensorDataQoS(), std::bind(&GroundSegmentatioNode::callback, this, std::placeholders::_1));
+             checkSubscriptionConnection(subscriber_pointcloud, "Pointcloud2", this->get_logger());
+         }
+ 

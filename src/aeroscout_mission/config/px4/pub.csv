@@ -1,0 +1,14 @@
+/<robot_namespace>/fmu/out/register_ext_component_reply;register_ext_component_reply;0
+/<robot_namespace>/fmu/out/arming_check_request;arming_check_request;0
+/<robot_namespace>/fmu/out/mode_completed;mode_completed;0
+/<robot_namespace>/fmu/out/battery_status;battery_status;0
+/<robot_namespace>/fmu/out/manual_control_setpoint;manual_control_setpoint;0
+/<robot_namespace>/fmu/out/vehicle_land_detected;vehicle_land_detected;0
+/<robot_namespace>/fmu/out/vehicle_attitude;vehicle_attitude;0
+/<robot_namespace>/fmu/out/vehicle_command_ack;vehicle_command_ack;0
+/<robot_namespace>/fmu/out/vehicle_global_position;vehicle_global_position;0
+/<robot_namespace>/fmu/out/vehicle_local_position;vehicle_local_position;0
+/<robot_namespace>/fmu/out/vehicle_odometry;vehicle_odometry;0
+/<robot_namespace>/fmu/out/vehicle_status;vehicle_status;0
+/<robot_namespace>/fmu/out/health_report;health_report;0
+/<robot_namespace>/fmu/out/airspeed_validated;airspeed_validated;0

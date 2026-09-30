@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  PYTHONPATH: src/fleet_config:src/fleet_unit
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff==0.16.9
+      - run: ruff check .
+      - if: ${{ !cancelled() }}
+        run: ruff format --check .
+      - if: ${{ !cancelled() }}
+        run: shellcheck --exclude=SC1090,SC1091 scripts/*.sh docker/ros-workspace-exec
+      - if: ${{ !cancelled() }}
+        run: docker run --rm -v "$PWD/docker:/docker:ro" hadolint/hadolint:v2.12.0 hadolint --ignore DL3008 /docker/Dockerfile
+
+  render:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml pytest
+      - run: cp src/fleet_config/site.example.yaml site.yaml
+      - name: Render every target and validate its Compose file
+        run: |
+          for target in $(python3 -m fleet_config list); do
+            out="$RUNNER_TEMP/render/$target"
+            python3 -m fleet_config render --target "$target" --instance 1 --out "$out"
+            SAGE_RENDER_HOST="$out" SAGE_RUN_HOST="$RUNNER_TEMP/run" SAGE_IMAGE_DIGEST=unset \
+              SAGE_VIDEO_GID=44 SAGE_RENDER_GID=110 DOCKER_UID=1000 DOCKER_GID=1000 \
+              docker compose -f "$out/compose.yaml" --project-directory docker config -q
+          done
+      - name: Check render facts
+        run: python3 -m pytest src/fleet_config/test
+
+  build:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - run: pip install pyyaml vcs2l
+      - run: make build TARGET=sim

@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>terrascout_mission</name>
+  <version>0.1.0</version>
+  <description>Ground mission server that executes fleet mission plans with Nav2 navigate_to_pose goals</description>
+  <maintainer email="emil.persson@mdu.se">Emil Persson</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
+
+  <depend>rclpy</depend>
+  <depend>fleet_interfaces</depend>
+  <depend>std_msgs</depend>
+  <depend>fleet_common</depend>
+  <depend>nav2_msgs</depend>
+  <depend>action_msgs</depend>
+  <depend>foxglove_msgs</depend>
+  <depend>lifecycle_msgs</depend>
+  <depend>rcl_interfaces</depend>
+  <depend>sensor_msgs</depend>
+
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

@@ -1,0 +1,45 @@
+--- a/src/ground_segmentation_ros2_node.cpp
++++ b/src/ground_segmentation_ros2_node.cpp
+@@ -24,6 +24,7 @@
+ 
+ #include <Eigen/Dense>
+ #include <memory>
++#include <stdexcept>
+ #include <chrono>
+ #include <vector>
+ #include <limits>
+@@ -186,8 +187,7 @@
+         try {
+             tf =  buffer->lookupTransform(robot_frame, velo_frame, pointcloud_msg->header.stamp, tf2::durationFromSec(transform_tolerance));
+         } catch (tf2::TransformException &ex) {
+-            RCLCPP_ERROR(this->get_logger(), "Pointcloud Transform exception: %s", ex.what());
+-            return;
++            throw std::runtime_error("look up transform from " + velo_frame + " to " + robot_frame + " failed: " + ex.what());
+         }        
+ 
+         Eigen::Isometry3d T = tf2::transformToEigen(tf.transform);
+@@ -230,8 +230,7 @@
+                 }
+                 catch (tf2::TransformException &ex)
+                 {
+-                    RCLCPP_ERROR(this->get_logger(), "IMU Transform exception: %s", ex.what());
+-                    return;
++                    throw std::runtime_error("look up transform from " + robot_frame + " to " + imu_msg->header.frame_id + " failed: " + ex.what());
+                 }
+ 
+                 robot_in_gravity = imu_in_gravity * robot_in_imu;
+@@ -309,7 +308,13 @@
+     rclcpp::NodeOptions options;
+     options.allow_undeclared_parameters(true);
+     options.automatically_declare_parameters_from_overrides(true);
+-    rclcpp::spin(std::make_shared<GroundSegmentatioNode>(options));
++    try {
++        rclcpp::spin(std::make_shared<GroundSegmentatioNode>(options));
++    } catch (const std::exception &ex) {
++        RCLCPP_FATAL(rclcpp::get_logger("ground_segmentation"), "%s", ex.what());
++        rclcpp::shutdown();
++        return 1;
++    }
+     rclcpp::shutdown();
+     return 0;
+ }

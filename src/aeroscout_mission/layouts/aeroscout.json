@@ -1,0 +1,207 @@
+{
+  "configById": {
+    "3D!main": {
+      "topics": {
+        "/<robot_namespace>/odom": {
+          "visible": true,
+          "type": "line",
+          "lineWidth": 0.15,
+          "gradient": [
+            "#00d4ff",
+            "#00ffffff"
+          ]
+        },
+        "/<robot_namespace>/mission_path": {
+          "visible": true,
+          "type": "line",
+          "lineWidth": 0.2,
+          "gradient": [
+            "#22c55e",
+            "#22c55eff"
+          ]
+        },
+        "/<robot_namespace>/fmu/in/trajectory_setpoint": {
+          "visible": false
+        }
+      },
+      "layers": {
+        "grid": {
+          "layerId": "foxglove.Grid",
+          "instanceId": "grid",
+          "size": 100,
+          "divisions": 50,
+          "lineWidth": 0.5,
+          "color": "#248eff80",
+          "drawBehind": true
+        }
+      },
+      "followMode": "follow-position",
+      "followTf": "base_link",
+      "renderFrameId": "odom",
+      "cameraState": {
+        "perspective": true,
+        "distance": 30,
+        "phi": 50,
+        "thetaOffset": 45,
+        "targetOffset": [
+          0,
+          0,
+          0
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "scene": {
+        "transforms": {
+          "showLabel": true,
+          "labelSize": 0.2
+        }
+      },
+      "transforms": {
+        "frame:base_link": {
+          "visible": true
+        },
+        "frame:odom": {
+          "visible": true
+        }
+      },
+      "publish": {
+        "type": "point",
+        "poseTopic": "/<robot_namespace>/goal_pose",
+        "pointTopic": "/<robot_namespace>/clicked_point",
+        "poseEstimateTopic": "/<robot_namespace>/initialpose"
+      },
+      "synchronize": false,
+      "imageMode": {}
+    },
+    "map!geo": {
+      "topics": {
+        "/<robot_namespace>/navsat": {
+          "visible": true
+        },
+        "/<robot_namespace>/waypoints_geo": {
+          "visible": true
+        }
+      },
+      "zoomLevel": 17
+    },
+    "RawMessages!status": {
+      "topicPath": "/<robot_namespace>/fmu/out/vehicle_status",
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "fontSize": 12
+    },
+    "RawMessages!progress": {
+      "topicPath": "/<robot_namespace>/mission_progress",
+      "fontSize": 12
+    },
+    "Plot!altitude": {
+      "paths": [
+        {
+          "value": "/<robot_namespace>/odom.pose.pose.position.z",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "altitude (m)"
+        },
+        {
+          "value": "/<robot_namespace>/fmu/out/vehicle_local_position.z",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "PX4 local z (NED, m)"
+        }
+      ],
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "showLegend": true,
+      "legendDisplay": "floating",
+      "showPlotValuesInLegend": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "sidebarDimension": 240
+    },
+    "Plot!battery": {
+      "paths": [
+        {
+          "value": "/<robot_namespace>/fmu/out/battery_status.voltage_v",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "voltage (V)"
+        },
+        {
+          "value": "/<robot_namespace>/fmu/out/battery_status.remaining",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "remaining (0-1)"
+        }
+      ],
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "showLegend": true,
+      "legendDisplay": "floating",
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "sidebarDimension": 240
+    },
+    "Tab!plots": {
+      "activeTabIdx": 0,
+      "tabs": [
+        {
+          "title": "Altitude",
+          "layout": "Plot!altitude"
+        },
+        {
+          "title": "Battery",
+          "layout": "Plot!battery"
+        }
+      ]
+    },
+    "Tab!status": {
+      "activeTabIdx": 0,
+      "tabs": [
+        {
+          "title": "Vehicle status",
+          "layout": "RawMessages!status"
+        },
+        {
+          "title": "Mission progress",
+          "layout": "RawMessages!progress"
+        }
+      ]
+    }
+  },
+  "layout": {
+    "direction": "column",
+    "first": {
+      "direction": "row",
+      "first": "3D!main",
+      "second": {
+        "direction": "column",
+        "first": "map!geo",
+        "second": "Tab!status",
+        "splitPercentage": 55
+      },
+      "splitPercentage": 55
+    },
+    "second": "Tab!plots",
+    "splitPercentage": 70
+  },
+  "globalVariables": {},
+  "playbackConfig": {
+    "speed": 1
+  },
+  "userNodes": {}
+}

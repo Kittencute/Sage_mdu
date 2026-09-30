@@ -1,0 +1,37 @@
+repositories:
+  Livox-SDK2:
+    type: git
+    url: https://github.com/SLaRCLabs/Livox-SDK2.git
+    version: 9791bc3d8744377dc02be7e6f40587af14add90d
+  livox_ros_driver2:
+    type: git
+    url: https://github.com/SLaRCLabs/livox_ros_driver2.git
+    version: 486cbc2e1cdcf1cfe17bfd9875902b9bc15b8909
+  fixposition_driver:
+    type: git
+    url: https://github.com/fixposition/fixposition_driver.git
+    version: 3f75c6280bd6119cd5e933099b2bad80ed4983ab
+  gscam2:
+    type: git
+    url: https://github.com/clydemcqueen/gscam2.git
+    version: 392486810d0e511da444a207bf13db7632f0c49a
+  ground_segmentation:
+    type: git
+    url: https://github.com/dfki-ric/ground_segmentation.git
+    version: e5aa4c2c47a961eae491056cf616fd415ff3d602
+  ground_segmentation_ros2:
+    type: git
+    url: https://github.com/dfki-ric/ground_segmentation_ros2.git
+    version: c0d60fd8ddcf561d006a907e04c84f9a8847372a
+  px4_msgs:
+    type: git
+    url: https://github.com/PX4/px4_msgs.git
+    version: e6abca61fc38a30b987056f5bbfd5281ce14821c
+  px4-ros2-interface-lib:
+    type: git
+    url: https://github.com/Auterion/px4-ros2-interface-lib.git
+    version: 365dd8807869fd81813de0415ec99e85ea021d59
+  PX4-Autopilot:
+    type: git
+    url: https://github.com/PX4/PX4-Autopilot.git
+    version: c72793619ee7b0a1b08458e6cccababfffc9d8ad

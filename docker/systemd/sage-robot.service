@@ -1,0 +1,16 @@
+[Unit]
+Description=SAGE robot stack
+Wants=network-online.target
+After=network-online.target time-sync.target tailscaled.service docker.service bluetooth.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=<user>
+EnvironmentFile=/etc/sage/env
+ExecStart=/usr/bin/make -C ${SAGE_DIR} up
+ExecStop=/usr/bin/make -C ${SAGE_DIR} down
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

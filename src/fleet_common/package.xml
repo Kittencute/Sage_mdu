@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>fleet_common</name>
+  <version>0.1.0</version>
+  <description>Shared Python helpers for fleet packages: parameter declaration, QoS profiles, signal handling, geodesy, waypoint GeoJSON, and the send_mission command-line client for any vehicle's mission server</description>
+  <maintainer email="emil.persson@mdu.se">Emil Persson</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>python3-pyproj</exec_depend>
+  <exec_depend>fleet_interfaces</exec_depend>
+  <exec_depend>geographic_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

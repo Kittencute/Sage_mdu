@@ -1,0 +1,386 @@
+<?xml version="1.0" ?>
+<robot name="scout" xmlns:xacro="http://www.ros.org/wiki/xacro" xmlns:gz="http://gazebosim.org/schema">
+
+  <xacro:property name="ns" value="$(arg namespace)"/>
+  <xacro:arg name="can_interface" default=""/>
+  <xacro:property name="geometry" value="${xacro.load_yaml('$(find terrascout_description)/config/geometry.yaml')}"/>
+  <xacro:property name="wheel" value="${geometry['wheel']}"/>
+
+  <link name="vrtk_link"/>
+
+  <joint name="vrtk_joint" type="fixed">
+    <parent link="vrtk_link"/>
+    <child link="base_footprint"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="base_footprint"/>
+
+  <joint name="base_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 ${geometry['base_height']}" rpy="0 0 0"/>
+  </joint>
+
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 -0.11" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://terrascout_description/meshes/chassis.dae"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="${geometry['body']['length']} ${geometry['body']['width']} ${geometry['body']['height']}"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="56.452"/>
+      <inertia ixx="2.514" ixy="0" ixz="0"
+               iyy="4.2842" iyz="0" izz="6.3673"/>
+    </inertial>
+  </link>
+
+  <xacro:macro name="wheel" params="name x y mesh visual_y visual_yaw">
+    <joint name="${name}_wheel_joint" type="continuous">
+      <parent link="base_link"/>
+      <child link="${name}_wheel_link"/>
+      <origin xyz="${x} ${y} ${wheel['radius'] - geometry['base_height']}" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+      <limit effort="50.0" velocity="100.0"/>
+      <dynamics damping="0.1" friction="0.0"/>
+    </joint>
+
+    <link name="${name}_wheel_link">
+      <visual>
+        <origin xyz="0 ${visual_y} 0" rpy="0 0 ${visual_yaw}"/>
+        <geometry>
+          <mesh filename="package://terrascout_description/meshes/${mesh}.dae" scale="3.7 3.7 3.7"/>
+        </geometry>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 1.5708 1.5708"/>
+        <geometry>
+          <cylinder radius="${wheel['radius']}" length="${wheel['width']}"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <origin xyz="0 0 0"/>
+        <mass value="2.637"/>
+        <inertia ixx="0.02481" ixy="0" ixz="0"
+                 iyy="0.04038" iyz="0" izz="0.02481"/>
+      </inertial>
+    </link>
+
+    <gazebo reference="${name}_wheel_link">
+      <collision>
+        <surface>
+          <friction>
+            <ode>
+              <mu>0.44</mu>
+              <mu2>1.0</mu2>
+              <fdir1 gz:expressed_in="${name}_wheel_link">0 1 0</fdir1>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:wheel name="front_left" x="${wheel['x']}" y="${wheel['separation'] / 2}" mesh="wheel_b" visual_y="0.015" visual_yaw="${pi}"/>
+
+  <xacro:wheel name="front_right" x="${wheel['x']}" y="${-wheel['separation'] / 2}" mesh="wheel_a" visual_y="0" visual_yaw="${pi}"/>
+
+  <xacro:wheel name="rear_left" x="${-wheel['x']}" y="${wheel['separation'] / 2}" mesh="wheel_a" visual_y="0" visual_yaw="0"/>
+
+  <xacro:wheel name="rear_right" x="${-wheel['x']}" y="${-wheel['separation'] / 2}" mesh="wheel_b" visual_y="-0.015" visual_yaw="0"/>
+
+  <joint name="lidar_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="lidar_link"/>
+    <origin xyz="${geometry['lidar']['x']} 0 ${geometry['lidar']['z']}" rpy="0 0 0"/>
+  </joint>
+
+  <link name="lidar_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.0325" length="0.06"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.05" length="0.06"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0"/>
+      <mass value="0.265"/>
+      <inertia ixx="0.0001" ixy="0" ixz="0"
+               iyy="0.0001" iyz="0" izz="0.0001"/>
+    </inertial>
+  </link>
+
+  <gazebo reference="lidar_link">
+    <sensor name="mid360_lidar" type="gpu_lidar">
+      <always_on>true</always_on>
+      <visualize>false</visualize>
+      <update_rate>10</update_rate>
+      <topic>${ns}/lidar_points</topic>
+      <gz_frame_id>lidar_link</gz_frame_id>
+      <lidar>
+        <scan>
+          <horizontal>
+            <samples>720</samples>
+            <resolution>1</resolution>
+            <min_angle>-3.14159</min_angle>
+            <max_angle>3.14159</max_angle>
+          </horizontal>
+          <vertical>
+            <samples>40</samples>
+            <resolution>1</resolution>
+            <min_angle>-0.1222</min_angle>
+            <max_angle>0.9076</max_angle>
+          </vertical>
+        </scan>
+        <range>
+          <min>0.1</min>
+          <max>40.0</max>
+          <resolution>0.01</resolution>
+        </range>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>0.02</stddev>
+        </noise>
+      </lidar>
+    </sensor>
+  </gazebo>
+
+  <joint name="lidar_imu_joint" type="fixed">
+    <parent link="lidar_link"/>
+    <child link="lidar_imu_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="lidar_imu_link"/>
+
+  <gazebo reference="lidar_imu_link">
+    <sensor name="lidar_imu" type="imu">
+      <always_on>true</always_on>
+      <update_rate>100</update_rate>
+      <topic>${ns}/imu</topic>
+      <gz_frame_id>lidar_imu_link</gz_frame_id>
+      <imu>
+        <angular_velocity>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.001</stddev>
+          </noise>
+        </angular_velocity>
+        <linear_acceleration>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.02</stddev>
+          </noise>
+        </linear_acceleration>
+      </imu>
+    </sensor>
+  </gazebo>
+
+  <joint name="fp_cam_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="fp_cam_link"/>
+    <origin xyz="0.01 0 0.32" rpy="0 0 0"/>
+  </joint>
+
+  <link name="fp_cam_link"/>
+
+  <gazebo reference="fp_cam_link">
+    <sensor name="fp_camera_sensor" type="camera">
+      <always_on>true</always_on>
+      <update_rate>8</update_rate>
+      <topic>${ns}/front_camera/image</topic>
+      <gz_frame_id>fp_cam_link</gz_frame_id>
+      <camera>
+        <horizontal_fov>1.0</horizontal_fov>
+        <image>
+          <width>640</width>
+          <height>480</height>
+          <format>R8G8B8</format>
+        </image>
+        <clip>
+          <near>0.05</near>
+          <far>100.0</far>
+        </clip>
+      </camera>
+    </sensor>
+  </gazebo>
+
+  <joint name="navsat_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="navsat_link"/>
+    <origin xyz="0 0 0.58" rpy="0 0 0"/>
+  </joint>
+
+  <link name="navsat_link"/>
+
+  <gazebo reference="navsat_link">
+    <sensor name="navsat_sensor" type="navsat">
+      <always_on>true</always_on>
+      <update_rate>10</update_rate>
+      <topic>${ns}/navsat</topic>
+      <gz_frame_id>navsat_link</gz_frame_id>
+      <navsat>
+        <position_sensing>
+          <horizontal><noise type="gaussian"><mean>0</mean><stddev>0.0000002</stddev></noise></horizontal>
+          <vertical><noise type="gaussian"><mean>0</mean><stddev>0.0000004</stddev></noise></vertical>
+        </position_sensing>
+      </navsat>
+    </sensor>
+  </gazebo>
+
+  <joint name="microstrain_imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="microstrain_imu_link"/>
+    <origin xyz="0 0 0.15" rpy="0 0 0"/>
+  </joint>
+
+  <link name="microstrain_imu_link"/>
+
+  <gazebo reference="microstrain_imu_link">
+    <sensor name="microstrain_imu" type="imu">
+      <always_on>true</always_on>
+      <update_rate>200</update_rate>
+      <topic>${ns}/microstrain/imu/data</topic>
+      <gz_frame_id>microstrain_imu_link</gz_frame_id>
+      <imu>
+        <angular_velocity>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.0002</stddev>
+          </noise>
+        </angular_velocity>
+        <linear_acceleration>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.005</stddev>
+          </noise>
+        </linear_acceleration>
+      </imu>
+    </sensor>
+    <sensor name="microstrain_mag" type="magnetometer">
+      <always_on>true</always_on>
+      <update_rate>200</update_rate>
+      <topic>${ns}/microstrain/imu/mag</topic>
+      <gz_frame_id>microstrain_imu_link</gz_frame_id>
+      <magnetometer>
+        <x><noise type="gaussian"><mean>0.0</mean><stddev>1e-5</stddev></noise></x>
+        <y><noise type="gaussian"><mean>0.0</mean><stddev>1e-5</stddev></noise></y>
+        <z><noise type="gaussian"><mean>0.0</mean><stddev>1e-5</stddev></noise></z>
+      </magnetometer>
+    </sensor>
+  </gazebo>
+
+  <gazebo>
+    <plugin
+      filename="gz-sim-diff-drive-system"
+      name="gz::sim::systems::DiffDrive">
+      <left_joint>front_left_wheel_joint</left_joint>
+      <left_joint>rear_left_wheel_joint</left_joint>
+      <right_joint>front_right_wheel_joint</right_joint>
+      <right_joint>rear_right_wheel_joint</right_joint>
+      <wheel_separation>${wheel['separation']}</wheel_separation>
+      <wheel_radius>${wheel['radius']}</wheel_radius>
+      <max_linear_acceleration>2.5</max_linear_acceleration>
+      <min_linear_acceleration>-2.5</min_linear_acceleration>
+      <max_angular_acceleration>3.2</max_angular_acceleration>
+      <min_angular_acceleration>-3.2</min_angular_acceleration>
+      <max_linear_velocity>2.0</max_linear_velocity>
+      <min_linear_velocity>-2.0</min_linear_velocity>
+      <topic>${ns}/cmd_vel</topic>
+      <odom_topic>${ns}/odom</odom_topic>
+      <tf_topic>tf_unused</tf_topic>
+      <frame_id>odom</frame_id>
+      <child_frame_id>base_footprint</child_frame_id>
+      <odom_publish_frequency>30</odom_publish_frequency>
+    </plugin>
+
+    <plugin
+      filename="velocity_command_timeout"
+      name="fleet_simulation::VelocityCommandTimeout">
+      <topic>${ns}/cmd_vel</topic>
+      <timeout>0.5</timeout>
+    </plugin>
+
+    <plugin
+      filename="gz-sim-odometry-publisher-system"
+      name="gz::sim::systems::OdometryPublisher">
+      <odom_frame>odom</odom_frame>
+      <robot_frame>base_footprint</robot_frame>
+      <odom_topic>${ns}/odom_gt</odom_topic>
+      <tf_topic>tf_unused</tf_topic>
+      <odom_publish_frequency>30</odom_publish_frequency>
+      <dimensions>3</dimensions>
+    </plugin>
+
+    <plugin
+      filename="gz-sim-joint-state-publisher-system"
+      name="gz::sim::systems::JointStatePublisher">
+      <joint_name>front_left_wheel_joint</joint_name>
+      <joint_name>front_right_wheel_joint</joint_name>
+      <joint_name>rear_left_wheel_joint</joint_name>
+      <joint_name>rear_right_wheel_joint</joint_name>
+      <topic>${ns}/joint_states</topic>
+      <update_rate>10</update_rate>
+    </plugin>
+  </gazebo>
+
+  <xacro:if value="${'$(arg can_interface)' != ''}">
+    <ros2_control name="TerrascoutSystem" type="system">
+      <hardware>
+        <plugin>terrascout_hardware/TerrascoutSystem</plugin>
+        <param name="can_interface">$(arg can_interface)</param>
+        <param name="gear_ratio">9</param>
+        <param name="pole_pairs">21</param>
+        <param name="max_motor_erpm">43000</param>
+        <param name="can_send_failure_timeout">0.5</param>
+        <param name="feedback_stale_timeout">0.5</param>
+      </hardware>
+      <joint name="front_left_wheel_joint">
+        <param name="can_id">1</param>
+        <param name="negate">true</param>
+        <command_interface name="velocity"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="front_right_wheel_joint">
+        <param name="can_id">2</param>
+        <command_interface name="velocity"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="rear_left_wheel_joint">
+        <param name="can_id">3</param>
+        <param name="negate">true</param>
+        <command_interface name="velocity"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="rear_right_wheel_joint">
+        <param name="can_id">4</param>
+        <command_interface name="velocity"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+    </ros2_control>
+  </xacro:if>
+
+</robot>

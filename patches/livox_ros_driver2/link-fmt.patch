@@ -1,0 +1,10 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -104,6 +104,7 @@
+   ${Boost_LIBRARY}
+   ${PCL_LIBRARIES}
+   ${APR_LIBRARIES}
++  fmt
+ )
+ 
+ rclcpp_components_register_node(${PROJECT_NAME}

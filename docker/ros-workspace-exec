@@ -1,0 +1,7 @@
+#!/bin/bash
+set -e
+[ -f "/opt/ros/${ROS_DISTRO}/setup.bash" ] || { echo "container command failed: operation: source /opt/ros/${ROS_DISTRO}/setup.bash; cause: file does not exist" >&2; exit 1; }
+source "/opt/ros/${ROS_DISTRO}/setup.bash"
+[ -f /workspace/install/setup.bash ] || { echo "container command failed: operation: source /workspace/install/setup.bash; cause: file does not exist" >&2; exit 1; }
+source /workspace/install/setup.bash
+exec "$@"

@@ -1,0 +1,23 @@
+/**:
+  ros__parameters:
+    use_imu_orientation: true
+    robot_frame: base_link
+    lidar_to_ground: -0.53
+    transform_tolerance: 0.3
+    cellSizeX: 1.0
+    cellSizeY: 1.0
+    cellSizeZ: 10.0
+    cellSizeZPhase2: 1.0
+    slopeThresholdDegrees: 30.0
+    groundInlierThreshold: 0.15
+    maxGroundHeightDeviation: 0.2
+    centroidSearchRadius: 5.0
+    maxX: 25.0
+    minX: -25.0
+    maxY: 25.0
+    minY: -25.0
+    maxZ: 3.0
+    minZ: -1.0
+    downsample: true
+    downsample_resolution: 0.08
+    show_benchmark: false

@@ -1,0 +1,51 @@
+/<robot_namespace>/tf_static:
+  depth: 1
+  durability: transient_local
+/<robot_namespace>/imu:
+  depth: 10
+  reliability: best_effort
+/<robot_namespace>/lidar_points_raw:
+  depth: 10
+  reliability: best_effort
+/<robot_namespace>/lidar_points_filtered:
+  depth: 10
+  reliability: best_effort
+/<robot_namespace>/obstacle_points:
+  depth: 10
+  reliability: best_effort
+/<robot_namespace>/ground_points:
+  depth: 10
+  reliability: best_effort
+/<robot_namespace>/raw_points:
+  depth: 10
+  reliability: best_effort
+/<robot_namespace>/lidar_imu:
+  depth: 10
+  reliability: best_effort
+/<robot_namespace>/map:
+  depth: 1
+  durability: transient_local
+/<robot_namespace>/microstrain/imu/data:
+  depth: 10
+  reliability: best_effort
+/<robot_namespace>/microstrain/imu/mag:
+  depth: 10
+  reliability: best_effort
+/<robot_namespace>/fixposition/odometry_enu:
+  depth: 10
+  reliability: best_effort
+/<robot_namespace>/fixposition/odometry_llh:
+  depth: 10
+  reliability: best_effort
+/<robot_namespace>/fixposition/odometry_smooth:
+  depth: 10
+  reliability: best_effort
+/<robot_namespace>/navsat:
+  depth: 10
+  reliability: best_effort
+/<robot_namespace>/teleop_takeover:
+  depth: 1
+  durability: transient_local
+/<robot_namespace>/front_camera/image:
+  depth: 10
+  reliability: best_effort

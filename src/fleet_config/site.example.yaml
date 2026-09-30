@@ -1,0 +1,14 @@
+station:
+  uplink_address: 192.0.2.1
+  mosquitto_password_file: /etc/mosquitto/password_file
+  foxglove_address: 192.0.2.1
+terrascout1:
+  foxglove_address: 192.0.2.2
+  uplink_interface: tailscale0
+  drive_can_interface: can0
+  battery_can_interface: can1
+  gnss_stream: tcpcli://192.0.2.20:21000
+  imu_aux_port: /dev/ttyACM0
+  lidar_host_address: 192.0.2.30
+  lidar_address: 192.0.2.31
+  ptp_interface: eth0

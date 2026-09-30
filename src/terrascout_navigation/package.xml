@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>terrascout_navigation</name>
+  <version>0.1.0</version>
+  <description>Nav2, twist mux and ground segmentation configuration for the TerraScout, plus nodes that simulate its GNSS odometry topics, filter LiDAR clouds, stamp velocity commands and cancel autonomy when an operator takes over</description>
+  <maintainer email="emil.persson@mdu.se">Emil Persson</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
+
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>python3-numpy</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>action_msgs</depend>
+
+  <exec_depend>terrascout_description</exec_depend>
+  <exec_depend>navigation2</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>fleet_common</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

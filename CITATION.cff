@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: SAGE
+abstract: "Fleet management for ground and aerial robots on ROS 2 Jazzy. Each robot runs as one unit, rendered from a Python fleet definition, and shares its topics with the station over Zenoh."
+authors:
+  - family-names: Persson
+    given-names: Emil
+    email: emil.persson@mdu.se
+    affiliation: Mälardalen University
+version: 0.1.0
+date-released: 2026-09-29
+repository-code: https://github.com/SLaRCLabs/sage
+url: https://github.com/SLaRCLabs/sage
+keywords:
+  - ROS 2
+  - multi-robot
+  - fleet management
+  - Zenoh
+license: MIT

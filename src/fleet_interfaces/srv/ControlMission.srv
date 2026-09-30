@@ -1,0 +1,8 @@
+uint8 SUSPEND = 1
+uint8 RESUME = 2
+
+# SUSPEND or RESUME
+uint8 request
+---
+bool accepted
+string reason

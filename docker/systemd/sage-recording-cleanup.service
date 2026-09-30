@@ -1,0 +1,8 @@
+[Unit]
+Description=Delete MCAP recordings older than 24h
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/sage/env
+ExecStart=/usr/bin/find ${SAGE_DIR}/runs -path '*/recordings/*' -name '*.mcap' -mmin +1440 -delete
+ExecStartPost=/usr/bin/find ${SAGE_DIR}/runs -path '*/recordings/*' -type d -empty -delete

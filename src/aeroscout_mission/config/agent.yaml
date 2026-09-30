@@ -1,0 +1,5 @@
+/**:
+  ros__parameters:
+    default_vertical_velocity: 1.5
+    default_max_heading_rate: 60.0
+    force_arm: false

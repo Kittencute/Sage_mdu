@@ -1,0 +1,7 @@
+<library path="terrascout_hardware">
+  <class name="terrascout_hardware/TerrascoutSystem"
+         type="terrascout_hardware::TerrascoutSystem"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>CubeMars motor hardware interface for TerraSCout UGV via SocketCAN.</description>
+  </class>
+</library>

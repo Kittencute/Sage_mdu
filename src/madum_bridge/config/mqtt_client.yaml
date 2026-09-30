@@ -1,0 +1,86 @@
+/**:
+  ros__parameters:
+    broker:
+      host: <broker_host>
+      port: <broker_port>
+      tls:
+        enabled: <broker_tls>
+        ca_certificate: /etc/ssl/certs/ca-certificates.crt
+    client:
+      id: '<madum_client_id>'
+      clean_session: true
+      keep_alive_interval: 120.0
+      last_will:
+        topic: MADUM/vehicle/will/<vehicle_id>
+        message: '{"id":<vehicle_id>}'
+        qos: 2
+        retained: false
+      buffer:
+        size: 0
+        directory: /tmp
+    bridge:
+      ros2mqtt:
+        ros_topics:
+        - vh/summary
+        - vh/stateVector
+        - vh/missionUpdate
+        - vh/alarm
+        - vh/alarmResolved
+        vh/summary:
+          mqtt_topic: MADUM/vehicle/summary/<vehicle_id>
+          primitive: true
+          advanced:
+            mqtt:
+              qos: 1
+              retained: true
+        vh/stateVector:
+          mqtt_topic: MADUM/vehicle/stateVector/<vehicle_id>
+          primitive: true
+          advanced:
+            mqtt:
+              qos: 0
+              retained: true
+        vh/missionUpdate:
+          mqtt_topic: MADUM/vehicle/missionUpdate/<vehicle_id>
+          primitive: true
+          advanced:
+            mqtt:
+              qos: 1
+              retained: true
+        vh/alarm:
+          mqtt_topic: MADUM/vehicle/alarm/<vehicle_id>
+          primitive: true
+          advanced:
+            mqtt:
+              qos: 1
+              retained: true
+        vh/alarmResolved:
+          mqtt_topic: MADUM/vehicle/alarmResolved/<vehicle_id>
+          primitive: true
+          advanced:
+            mqtt:
+              qos: 1
+              retained: true
+      mqtt2ros:
+        mqtt_topics:
+        - MADUM/middleware/missionSend/<vehicle_id>
+        - MADUM/middleware/mission/<vehicle_id>
+        - MADUM/middleware/missionFull
+        MADUM/middleware/missionSend/<vehicle_id>:
+          ros_topic: mw/missionSend
+          primitive: true
+          advanced:
+            mqtt:
+              qos: 2
+        MADUM/middleware/mission/<vehicle_id>:
+          ros_topic: mw/mission
+          primitive: true
+          advanced:
+            mqtt:
+              qos: 1
+        MADUM/middleware/missionFull:
+          ros_topic: mw/missionFull
+          primitive: true
+          advanced:
+            mqtt:
+              qos: 1

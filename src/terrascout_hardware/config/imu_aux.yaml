@@ -1,0 +1,16 @@
+/**:
+  ros__parameters:
+    port: <imu_aux_port>
+    baudrate: 115200
+    imu_data_rate: 200
+    filter_imu_data_rate: 100
+    frame_id: microstrain_imu_link
+    use_enu_frame: true
+    tf_mode: 0
+    publish_mount_to_frame_id_transform: false
+    filter_declination_source: 1
+    filter_auto_heading_alignment_selector: 4
+    filter_enable_wheeled_vehicle_constraint: true
+    filter_enable_gnss_pos_vel_aiding: false
+    filter_enable_gnss_heading_aiding: false
+    filter_pps_source: 0

@@ -1,0 +1,14 @@
+MissionPlan plan
+---
+builtin_interfaces/Time stamp
+# MISSION_* value of MissionState
+uint8 status
+# MissionCommand.id of the command that failed or is running
+int32 command_id
+string reason
+---
+builtin_interfaces/Time stamp
+# MissionCommand.id
+int32 command_id
+# COMMAND_* value of MissionState
+uint8 status

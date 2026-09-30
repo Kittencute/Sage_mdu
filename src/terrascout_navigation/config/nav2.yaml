@@ -1,0 +1,237 @@
+<robot_namespace>:
+  behavior_server:
+    ros__parameters:
+      cycle_frequency: 5.0
+      enable_stamped_cmd_vel: true
+      max_rotational_vel: 1.68
+      min_rotational_vel: 0.4
+      rotational_acc_lim: 3.2
+  bt_navigator:
+    ros__parameters:
+      default_nav_to_pose_bt_xml: $(find-pkg-share terrascout_navigation)/config/navigate_to_pose.xml
+      error_code_names:
+      - compute_path_error_code
+      - follow_path_error_code
+      navigate_to_pose:
+        plugin: nav2_bt_navigator::NavigateToPoseNavigator
+      navigators:
+      - navigate_to_pose
+      transform_tolerance: 0.5
+  collision_monitor:
+    ros__parameters:
+      PolygonSlow:
+        action_type: slowdown
+        enabled: true
+        points: '[[1.15, 0.50], [1.15, -0.50], [-0.615, -0.50], [-0.615, 0.50]]'
+        polygon_pub_topic: polygon_slowdown
+        slowdown_ratio: 0.3
+        type: polygon
+        visualize: true
+      PolygonStop:
+        action_type: stop
+        enabled: true
+        points: '[[0.615, 0.50], [0.615, -0.50], [-0.615, -0.50], [-0.615, 0.50]]'
+        polygon_pub_topic: polygon_stop
+        type: polygon
+        visualize: true
+      base_frame_id: base_link
+      cmd_vel_out_topic: cmd_vel_auto
+      enable_stamped_cmd_vel: true
+      observation_sources:
+      - pointcloud
+      pointcloud:
+        max_height: 2.0
+        min_height: -0.2
+        source_timeout: 0.5
+        topic: obstacle_points
+        type: pointcloud
+      polygons:
+      - PolygonStop
+      - PolygonSlow
+      source_timeout: 1.0
+      state_topic: collision_monitor_state
+      stop_pub_timeout: 2.0
+      transform_tolerance: 0.5
+  controller_server:
+    ros__parameters:
+      FollowPath:
+        CostCritic:
+          consider_footprint: true
+        ObstaclesCritic:
+          collision_cost: 10000.0
+          consider_footprint: true
+        PathAlignCritic:
+          max_path_occupancy_ratio: 0.05
+          use_path_orientations: true
+        PathAngleCritic:
+          cost_weight: 2.0
+          max_angle_to_furthest: 1.0
+        PathFollowCritic:
+          offset_from_furthest: 5
+          threshold_to_consider: 0.5
+        PreferForwardCritic:
+          cost_weight: 2.0
+        ax_max: 2.5
+        ax_min: -2.5
+        az_max: 3.2
+        batch_size: 500
+        critics:
+        - ConstraintCritic
+        - CostCritic
+        - ObstaclesCritic
+        - GoalCritic
+        - GoalAngleCritic
+        - PathAlignCritic
+        - PathFollowCritic
+        - PathAngleCritic
+        - PreferForwardCritic
+        enforce_path_inversion: true
+        inversion_xy_tolerance: 0.3
+        inversion_yaw_tolerance: 0.5
+        iteration_count: 2
+        max_angular_accel: 2.5
+        model_dt: 0.1
+        plugin: nav2_rotation_shim_controller::RotationShimController
+        primary_controller: nav2_mppi_controller::MPPIController
+        prune_distance: 10.0
+        rotate_to_heading_angular_vel: 1.2
+        vx_max: 1.0
+        vx_min: -0.35
+        vy_std: 0.0
+        wz_max: 1.68
+      controller_frequency: 10.0
+      enable_stamped_cmd_vel: true
+      failure_tolerance: 0.3
+      general_goal_checker:
+        plugin: nav2_controller::SimpleGoalChecker
+        xy_goal_tolerance: 0.5
+        yaw_goal_tolerance: 0.5
+      goal_checker_plugins:
+      - general_goal_checker
+      min_theta_velocity_threshold: 0.001
+      min_x_velocity_threshold: 0.001
+      min_y_velocity_threshold: 0.5
+      progress_checker:
+        movement_time_allowance: 20.0
+        required_movement_radius: 0.1
+  global_costmap:
+    global_costmap:
+      ros__parameters:
+        always_send_full_costmap: true
+        footprint: '[[0.465, 0.35], [0.465, -0.35], [-0.465, -0.35], [-0.465, 0.35]]'
+        footprint_padding: 0.01
+        height: 100
+        inflation_layer:
+          cost_scaling_factor: 2.75
+          inflation_radius: 0.75
+          plugin: nav2_costmap_2d::InflationLayer
+        initial_transform_timeout: 30.0
+        obstacle_layer:
+          max_obstacle_height: 1000.0
+          min_obstacle_height: -1000.0
+          observation_sources: obstacle_mark obstacle_clear
+          obstacle_clear:
+            clearing: true
+            data_type: PointCloud2
+            expected_update_rate: 0.5
+            marking: false
+            max_obstacle_height: 1000.0
+            min_obstacle_height: -1000.0
+            raytrace_max_range: 25.0
+            topic: /<robot_namespace>/raw_points
+          obstacle_mark:
+            data_type: PointCloud2
+            expected_update_rate: 0.5
+            max_obstacle_height: 1000.0
+            min_obstacle_height: -1000.0
+            obstacle_max_range: 20.0
+            topic: /<robot_namespace>/obstacle_points
+          plugin: nav2_costmap_2d::ObstacleLayer
+        plugins:
+        - obstacle_layer
+        - inflation_layer
+        publish_frequency: 5.0
+        resolution: 0.1
+        rolling_window: true
+        width: 100
+  local_costmap:
+    local_costmap:
+      ros__parameters:
+        always_send_full_costmap: true
+        footprint: '[[0.465, 0.35], [0.465, -0.35], [-0.465, -0.35], [-0.465, 0.35]]'
+        footprint_padding: 0.01
+        global_frame: odom
+        height: 20
+        inflation_layer:
+          cost_scaling_factor: 3.0
+          inflation_radius: 0.75
+          plugin: nav2_costmap_2d::InflationLayer
+        initial_transform_timeout: 30.0
+        obstacle_layer:
+          max_obstacle_height: 1000.0
+          min_obstacle_height: -1000.0
+          observation_sources: obstacle_mark obstacle_clear
+          obstacle_clear:
+            clearing: true
+            data_type: PointCloud2
+            expected_update_rate: 0.5
+            marking: false
+            max_obstacle_height: 1000.0
+            min_obstacle_height: -1000.0
+            raytrace_max_range: 15.0
+            topic: /<robot_namespace>/raw_points
+          obstacle_mark:
+            data_type: PointCloud2
+            expected_update_rate: 0.5
+            max_obstacle_height: 1000.0
+            min_obstacle_height: -1000.0
+            obstacle_max_range: 12.0
+            topic: /<robot_namespace>/obstacle_points
+          plugin: nav2_costmap_2d::ObstacleLayer
+        plugins:
+        - obstacle_layer
+        - inflation_layer
+        publish_frequency: 1.5
+        resolution: 0.05
+        rolling_window: true
+        width: 20
+  planner_server:
+    ros__parameters:
+      GridBased:
+        cost_penalty: 4.0
+        lattice_filepath: $(find-pkg-share terrascout_navigation)/config/diff_lattice.json
+        non_straight_penalty: 1.5
+        plugin: nav2_smac_planner::SmacPlannerLattice
+        rotation_penalty: 2.0
+        tolerance: 0.5
+      expected_planner_frequency: 5.0
+  velocity_smoother:
+    ros__parameters:
+      enable_stamped_cmd_vel: true
+      max_accel:
+      - 2.5
+      - 0.0
+      - 3.2
+      max_decel:
+      - -2.5
+      - 0.0
+      - -3.2
+      max_velocity:
+      - 1.0
+      - 0.0
+      - 1.68
+      min_velocity:
+      - -0.35
+      - 0.0
+      - -1.68
+  lifecycle_manager_navigation:
+    ros__parameters:
+      autostart: true
+      bond_timeout: 0.0
+      node_names:
+      - controller_server
+      - planner_server
+      - behavior_server
+      - velocity_smoother
+      - collision_monitor
+      - bt_navigator

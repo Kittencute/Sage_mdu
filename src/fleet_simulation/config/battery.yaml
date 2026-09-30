@@ -1,0 +1,8 @@
+/**:
+  ros__parameters:
+    publish_period: 10.0
+    installed_packs: [left]
+    safety_stop_period: 0.1
+    initial_capacity_pct: 100.0
+    drain_pct_per_s: 0.0
+    min_capacity_pct: 10

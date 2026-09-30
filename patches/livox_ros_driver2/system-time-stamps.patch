@@ -1,0 +1,23 @@
+--- a/src/comm/pub_handler.cpp
++++ b/src/comm/pub_handler.cpp
+@@ -263,14 +263,12 @@
+ }
+ 
+ uint64_t PubHandler::GetEthPacketTimestamp(uint8_t timestamp_type, uint8_t* time_stamp, uint8_t size) {
+-  LdsStamp time;
+-  memcpy(time.stamp_bytes, time_stamp, size);
+-
+-  if (timestamp_type == kTimestampTypeGptpOrPtp ||
+-      timestamp_type == kTimestampTypeGps) {
+-    return time.stamp;
+-  }
+-
++  // Force system clock: the Livox auto-syncs to PTP from the fixposition
++  // VRTK2, but the rest of the TF tree uses system time. Until the host
++  // clock is PTP/NTP-synced to GPS, ignore hardware timestamps.
++  (void)timestamp_type;
++  (void)time_stamp;
++  (void)size;
+   return std::chrono::high_resolution_clock::now().time_since_epoch().count();
+ }
+ 

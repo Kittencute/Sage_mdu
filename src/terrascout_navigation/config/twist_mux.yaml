@@ -1,0 +1,25 @@
+/**:
+  ros__parameters:
+    use_stamped: true
+    topics:
+      joy_control:
+        topic: cmd_vel_joy
+        timeout: 0.5
+        priority: 100
+      auto_control:
+        topic: cmd_vel_auto
+        timeout: 0.5
+        priority: 10
+    locks:
+      safety_stop:
+        topic: platform/safety_stop
+        timeout: 0.3
+        priority: 255
+      estop:
+        topic: estop_lock
+        timeout: 0.5
+        priority: 255
+      autonomy:
+        topic: autonomy_lock
+        timeout: 0.5
+        priority: 50

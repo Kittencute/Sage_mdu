@@ -1,0 +1,20 @@
+/**:
+  ros__parameters:
+    can_interface: <battery_can_interface>
+    can_bitrate: 1000000
+    can_recv_timeout: 0.1
+    publish_period: 10.0
+    installed_packs: [left]
+    left_battery_can_id: 17863190
+    right_battery_can_id: 17863191
+    design_capacity_mah: 22000
+    stale_timeout: 1.0
+    safety_stop_period: 0.1
+    max_pack_voltage_mv: 51000
+    min_temp_c: 10
+    max_temp_c: 50
+    max_current_ma: 100000
+    min_cell_mv: 3300
+    max_cell_mv: 4250
+    min_capacity_pct: 10
+    min_health_pct: 20

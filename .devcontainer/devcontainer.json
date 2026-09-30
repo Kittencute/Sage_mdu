@@ -1,0 +1,57 @@
+{
+  "name": "SAGE",
+  "image": "sage-sim:latest",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "workspaceFolder": "/workspace",
+  "remoteUser": "ubuntu",
+  "updateRemoteUserUID": true,
+  "runArgs": ["--entrypoint=/bin/sh"],
+  "postCreateCommand": "printf '%s\\n' 'source /opt/ros/jazzy/setup.bash' '[ -f /workspace/install/setup.bash ] && source /workspace/install/setup.bash' >> ~/.bashrc",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "ms-vscode.cpptools",
+        "redhat.vscode-yaml"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/bin/python3",
+        "python.analysis.extraPaths": [
+          "src/*",
+          "install/*/lib/python3.12/site-packages",
+          "/opt/ros/jazzy/lib/python3.12/site-packages"
+        ],
+        "C_Cpp.default.compileCommands": "/workspace/build/compile_commands.json",
+        "C_Cpp.clang_format_style": "file",
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+          }
+        },
+        "[cpp]": {
+          "editor.defaultFormatter": "ms-vscode.cpptools",
+          "editor.formatOnSave": true
+        },
+        "files.watcherExclude": {
+          "**/build/**": true,
+          "**/install/**": true,
+          "**/log/**": true,
+          "**/src/third_party/**": true,
+          "**/runs/**": true,
+          "**/.sage/**": true
+        },
+        "search.exclude": {
+          "**/build": true,
+          "**/install": true,
+          "**/log": true,
+          "**/src/third_party": true,
+          "**/runs": true
+        }
+      }
+    }
+  }
+}

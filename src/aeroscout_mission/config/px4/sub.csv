@@ -1,0 +1,17 @@
+/<robot_namespace>/fmu/in/register_ext_component_request;register_ext_component_request;0
+/<robot_namespace>/fmu/in/unregister_ext_component;unregister_ext_component;0
+/<robot_namespace>/fmu/in/config_overrides_request;config_overrides_request;0
+/<robot_namespace>/fmu/in/arming_check_reply;arming_check_reply;0
+/<robot_namespace>/fmu/in/mode_completed;mode_completed;0
+/<robot_namespace>/fmu/in/config_control_setpoints;config_control_setpoints;0
+/<robot_namespace>/fmu/in/offboard_control_mode;offboard_control_mode;0
+/<robot_namespace>/fmu/in/goto_setpoint;goto_setpoint;0
+/<robot_namespace>/fmu/in/trajectory_setpoint;trajectory_setpoint;0
+/<robot_namespace>/fmu/in/vehicle_attitude_setpoint;vehicle_attitude_setpoint;0
+/<robot_namespace>/fmu/in/vehicle_rates_setpoint;vehicle_rates_setpoint;0
+/<robot_namespace>/fmu/in/vehicle_visual_odometry;vehicle_visual_odometry;0
+/<robot_namespace>/fmu/in/vehicle_command;vehicle_command;0
+/<robot_namespace>/fmu/in/vehicle_command_mode_executor;vehicle_command_mode_executor;0
+/<robot_namespace>/fmu/in/actuator_motors;actuator_motors;0
+/<robot_namespace>/fmu/in/actuator_servos;actuator_servos;0
+/<robot_namespace>/fmu/in/aux_global_position;aux_global_position;0

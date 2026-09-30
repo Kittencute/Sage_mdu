@@ -1,0 +1,16 @@
+[Unit]
+Description=CAN bus interface %I
+BindsTo=sys-subsystem-net-devices-%i.device
+After=sys-subsystem-net-devices-%i.device
+Before=sage-robot.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/sbin/ip link set %I down
+ExecStart=/sbin/ip link set %I type can bitrate 1000000 restart-ms 0
+ExecStart=/sbin/ip link set %I up
+ExecStop=/sbin/ip link set %I down
+
+[Install]
+RequiredBy=sage-robot.service

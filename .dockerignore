@@ -1,0 +1,5 @@
+*
+!docker/ros-snapshot-archive-keyring.asc
+!docker/pip-constraints.txt
+!docker/ros-workspace-exec
+!src/third_party/PX4-Autopilot/Tools/setup/requirements.txt
