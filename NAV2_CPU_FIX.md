@@ -48,7 +48,7 @@ nav2_mppi_controller 1.3.13
 mkdir -p ~/nav2_cpu_fix
 cd ~/nav2_cpu_fix
 
-git clone --branch 1.3.13 \
+git clone --depth 1 --branch 1.3.13 \
   https://github.com/ros-navigation/navigation2.git
 
 cd navigation2
@@ -97,15 +97,29 @@ install/nav2_mppi_controller/lib/libmppi_controller.so
 install/nav2_mppi_controller/lib/libmppi_critics.so
 ```
 
-## 5. Build Patched SAGE Image
+## 5. Verify Rebuilt Libraries
+
+```bash
+for f in \
+  install/nav2_mppi_controller/lib/libmppi_controller.so \
+  install/nav2_mppi_controller/lib/libmppi_critics.so
+do
+  objdump -d -M intel "$f" | \
+    grep -Ei '\bvfmadd|\bvinserti128|\bvpbroadcast|\bvpaddq.*ymm|\bvpmul.*ymm' | head
+done
+```
+
+There should be no output. This verifies that the rebuilt libraries do not contain the problematic AVX2/FMA instructions.
+
+## 6. Build Patched SAGE Image
 
 ```bash
 mkdir -p /tmp/nav2_mppi_cpu_fix
 
-cp install/nav2_mppi_controller/lib/libmppi_controller.so \
+cp ~/nav2_cpu_fix/navigation2/install/nav2_mppi_controller/lib/libmppi_controller.so \
   /tmp/nav2_mppi_cpu_fix/
 
-cp install/nav2_mppi_controller/lib/libmppi_critics.so \
+cp ~/nav2_cpu_fix/navigation2/install/nav2_mppi_controller/lib/libmppi_critics.so \
   /tmp/nav2_mppi_cpu_fix/
 ```
 
@@ -138,7 +152,7 @@ Use the patched image:
 docker tag sage-sim-mppi-fix:latest sage-sim:latest
 ```
 
-## 6. Test
+## 7. Test
 
 ```bash
 cd ~/sage_ws_mx
