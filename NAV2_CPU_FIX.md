@@ -1,281 +1,172 @@
-# Nav2 MPPI SIGILL Fix — Xeon E5-1660 v2
+# Nav2 MPPI CPU Fix
 
 ## Problem
 
-SAGE simulation started normally, but the TerraScout Nav2 container crashed when the
-Nav2 MPPI controller was initialized.
+TerraScout Nav2 crashed with:
 
-The important error was:
-
-    [terrascout1/nav2_container] exited: signal SIGILL
-
-This also caused the rest of the SAGE project, including `fleet-router`, to shut down.
-
-The fleet router itself was not the cause of the failure.
-
----
-
-## Hardware
+```text
+nav2_container exited: signal SIGILL
+```
 
 CPU:
 
-    Intel(R) Xeon(R) CPU E5-1660 v2 @ 3.70GHz
+```text
+Intel Xeon E5-1660 v2
+```
 
-Checking CPU instruction support:
+Check CPU instructions:
 
-    grep -m1 '^flags' /proc/cpuinfo | grep -oE '\b(avx2|avx|fma)\b'
+```bash
+grep -m1 '^flags' /proc/cpuinfo | grep -oE '\b(avx2|avx|fma)\b'
+```
 
-Result:
+Output:
 
-    avx
+```text
+avx
+```
 
-This CPU supports AVX, but does NOT support:
+The CPU supports AVX but not AVX2/FMA.
 
-- AVX2
-- FMA
+The ROS Jazzy Nav2 MPPI binaries contained AVX2/FMA instructions.
 
----
+## 1. Check Nav2 Version
 
-## Root Cause
+```bash
+apt list --installed 2>/dev/null | grep nav2-mppi
+```
 
-The installed ROS 2 Jazzy Nav2 MPPI package was:
+The version fixed on this machine was:
 
-    ros-jazzy-nav2-mppi-controller 1.3.13
+```text
+nav2_mppi_controller 1.3.13
+```
 
-The Nav2 MPPI libraries were:
+## 2. Get Matching Nav2 Source
 
-    /opt/ros/jazzy/lib/libmppi_controller.so
-    /opt/ros/jazzy/lib/libmppi_critics.so
+```bash
+mkdir -p ~/nav2_cpu_fix
+cd ~/nav2_cpu_fix
 
-Disassembling the original libraries showed AVX2/FMA instructions such as:
+git clone --branch 1.3.13 \
+  https://github.com/ros-navigation/navigation2.git
 
-    vinserti128
-    vfmadd132sd
-    vfmadd213ps
+cd navigation2
+```
 
-The Xeon E5-1660 v2 cannot execute these instructions.
-
-This explains the:
-
-    SIGILL
-
-`SIGILL` means the program attempted to execute an illegal/unsupported CPU instruction.
-
----
-
-## Why Nav2 Was Built This Way
-
-The matching Navigation2 source was checked out at version:
-
-    1.3.13
-
-In:
-
-    nav2_mppi_controller/CMakeLists.txt
-
-the build checks whether the compiler supports these flags:
-
-    check_cxx_compiler_flag("-mavx2" COMPILER_SUPPORTS_AVX2)
-    check_cxx_compiler_flag("-mfma" COMPILER_SUPPORTS_FMA)
-
-and then enables them:
-
-    if(COMPILER_SUPPORTS_AVX2)
-      add_compile_options(-mavx2)
-    endif()
-
-    if(COMPILER_SUPPORTS_FMA)
-      add_compile_options(-mfma)
-    endif()
-
-The important issue is that this checks whether the COMPILER understands AVX2/FMA.
-
-It does NOT check whether the CPU that will run Nav2 supports AVX2/FMA.
-
-Therefore the resulting MPPI libraries can contain instructions that this machine
-cannot execute.
-
----
-
-# Fix
-
-## 1. Get Navigation2 1.3.13
-
-The source used for the fix was placed in:
-
-    ~/nav2_cpu_fix/navigation2
-
-The source version must match the installed Nav2 version:
-
-    1.3.13
-
----
-
-## 2. Modify the MPPI CMake configuration
+## 3. Patch MPPI
 
 Edit:
 
-    nav2_mppi_controller/CMakeLists.txt
+```text
+nav2_mppi_controller/CMakeLists.txt
+```
 
-Remove/disable:
+Replace:
 
-    if(COMPILER_SUPPORTS_AVX2)
-      add_compile_options(-mavx2)
-    endif()
+```cmake
+if(COMPILER_SUPPORTS_AVX2)
+  add_compile_options(-mavx2)
+endif()
 
-    if(COMPILER_SUPPORTS_FMA)
-      add_compile_options(-mfma)
-    endif()
+if(COMPILER_SUPPORTS_FMA)
+  add_compile_options(-mfma)
+endif()
+```
 
-Replace them with:
+with:
 
-    # CPU compatibility: Xeon E5-1660 v2 supports AVX, but not AVX2/FMA.
-    add_compile_options(-mno-avx2 -mno-fma)
+```cmake
+add_compile_options(-mno-avx2 -mno-fma)
+```
 
-Other compiler optimization settings were left unchanged.
+## 4. Build MPPI
 
----
+```bash
+source /opt/ros/jazzy/setup.bash
 
-## 3. Rebuild only the MPPI controller
+colcon build \
+  --packages-select nav2_mppi_controller \
+  --cmake-args -DCMAKE_BUILD_TYPE=Release
+```
 
-From:
+The rebuilt libraries are:
 
-    ~/nav2_cpu_fix/navigation2
+```text
+install/nav2_mppi_controller/lib/libmppi_controller.so
+install/nav2_mppi_controller/lib/libmppi_critics.so
+```
 
-run:
+## 5. Build Patched SAGE Image
 
-    source /opt/ros/jazzy/setup.bash
+```bash
+mkdir -p /tmp/nav2_mppi_cpu_fix
 
-    colcon build \
-      --packages-select nav2_mppi_controller \
-      --cmake-args -DCMAKE_BUILD_TYPE=Release
+cp install/nav2_mppi_controller/lib/libmppi_controller.so \
+  /tmp/nav2_mppi_cpu_fix/
 
-The build should produce:
+cp install/nav2_mppi_controller/lib/libmppi_critics.so \
+  /tmp/nav2_mppi_cpu_fix/
+```
 
-    install/nav2_mppi_controller/lib/libmppi_controller.so
-    install/nav2_mppi_controller/lib/libmppi_critics.so
+Create `/tmp/nav2_mppi_cpu_fix/Dockerfile`:
 
----
+```dockerfile
+FROM sage-sim:latest
 
-## 4. Check the rebuilt libraries
+COPY libmppi_controller.so /opt/ros/jazzy/lib/libmppi_controller.so
+COPY libmppi_critics.so /opt/ros/jazzy/lib/libmppi_critics.so
+```
 
-The rebuilt libraries were checked for the AVX2/FMA instructions that appeared in
-the original binaries:
+Build:
 
-    for f in \
-      install/nav2_mppi_controller/lib/libmppi_controller.so \
-      install/nav2_mppi_controller/lib/libmppi_critics.so
-    do
-      echo "===== $f ====="
-      objdump -d -M intel "$f" |
-        grep -Ei '\bvfmadd|\bvinserti128|\bvpbroadcast|\bvpaddq.*ymm|\bvpmul.*ymm' |
-        head -30
-    done
+```bash
+cd /tmp/nav2_mppi_cpu_fix
 
-For the fixed build, nothing was printed below the two library headings.
+docker build -t sage-sim-mppi-fix:latest .
+```
 
----
+Keep the original image:
 
-# Testing With SAGE
+```bash
+docker tag sage-sim:latest sage-sim-original:latest
+```
 
-The normal SAGE simulation image was:
+Use the patched image:
 
-    sage-sim:latest
+```bash
+docker tag sage-sim-mppi-fix:latest sage-sim:latest
+```
 
-The rebuilt libraries were copied into:
+## 6. Test
 
-    /tmp/nav2_mppi_cpu_fix/
+```bash
+cd ~/sage_ws_mx
+make up
+```
 
-The temporary Dockerfile was:
+Nav2 should start without:
 
-    FROM sage-sim:latest
+```text
+SIGILL
+```
 
-    COPY libmppi_controller.so /opt/ros/jazzy/lib/libmppi_controller.so
-    COPY libmppi_critics.so /opt/ros/jazzy/lib/libmppi_critics.so
+The MPPI controller should configure and activate normally.
 
-Build the test image:
+## Restore Original Image
 
-    docker build \
-      -t sage-sim-mppi-fix:latest \
-      /tmp/nav2_mppi_cpu_fix
+If needed:
 
----
+```bash
+docker tag sage-sim-original:latest sage-sim:latest
+```
 
-## Preserve the Original SAGE Image
+## Important
 
-Before testing, preserve the original image:
+This fixes the Nav2 MPPI CPU compatibility problem.
 
-    docker tag sage-sim:latest sage-sim-original:latest
+It is separate from the NVIDIA/GPU setup documented in:
 
-Then make the patched image temporarily become `sage-sim:latest`:
-
-    docker tag sage-sim-mppi-fix:latest sage-sim:latest
-
-Verify:
-
-    docker image inspect \
-      sage-sim:latest \
-      sage-sim-mppi-fix:latest \
-      sage-sim-original:latest \
-      --format '{{.RepoTags}} -> {{.Id}}'
-
-Then start SAGE normally:
-
-    make up
-
----
-
-# Result
-
-Before the fix, Nav2 died while initializing MPPI:
-
-    nav2_container exited: signal SIGILL
-
-After rebuilding MPPI without AVX2/FMA, Nav2 successfully created the MPPI controller:
-
-    Created internal controller for rotation shimming:
-    FollowPath of type nav2_mppi_controller::MPPIController
-
-It then successfully configured MPPI:
-
-    Configured MPPI Controller: FollowPath
-
-And successfully activated it:
-
-    Activated MPPI Controller: FollowPath
-
-Nav2 continued starting and reported:
-
-    Managed nodes are active
-
-The TerraScout mission server then reached:
-
-    ready for missions
-
-Therefore the AVX2/FMA incompatibility was the cause of the Nav2 SIGILL crash.
-
----
-
-# Important
-
-The current solution is a TEST/PROOF solution.
-
-The fixed libraries were manually placed into a derived Docker image.
-
-A permanent solution should build the patched `nav2_mppi_controller` as part of
-the SAGE Docker build so that the fix is reproducible after:
-
-    docker image prune
-    make build
-
-or when setting up SAGE on another machine with the same CPU limitations.
-
-Do not rely permanently on files stored under:
-
-    /tmp/nav2_mppi_cpu_fix
-
-Also do not manually modify the host ROS installation under:
-
-    /opt/ros/jazzy/
-
-The permanent fix should be implemented through the SAGE Docker build.
+```text
+NVIDIA_SETUP.md
+```
