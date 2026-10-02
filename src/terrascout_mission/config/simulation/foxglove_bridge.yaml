@@ -53,6 +53,9 @@
     - ^/<robot_namespace>/tf_static$
     - ^/<robot_namespace>/trajectories$
     - ^/<robot_namespace>/waypoints_geo$
+    - ^/<robot_namespace>/front_depth/camera_info$
+    - ^/<robot_namespace>/front_depth/image$
+    - ^/<robot_namespace>/front_depth/points$
     best_effort_qos_topic_whitelist:
     - ^/<robot_namespace>/fixposition/odometry_enu$
     - ^/<robot_namespace>/fixposition/odometry_llh$
@@ -68,6 +71,8 @@
     - ^/<robot_namespace>/navsat$
     - ^/<robot_namespace>/obstacle_points$
     - ^/<robot_namespace>/raw_points$
+    - ^/<robot_namespace>/front_depth/image$
+    - ^/<robot_namespace>/front_depth/points$
     client_topic_whitelist:
     - ^/<robot_namespace>/clicked_point$
     - ^/<robot_namespace>/cmd_vel_teleop$

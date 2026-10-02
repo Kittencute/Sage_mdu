@@ -54,6 +54,24 @@
   gz_type_name: gz.msgs.CameraInfo
   direction: GZ_TO_ROS
   qos_profile: SENSOR_DATA
+- ros_topic_name: <robot_namespace>/front_depth/image
+  gz_topic_name: <robot_namespace>/front_depth/image
+  ros_type_name: sensor_msgs/msg/Image
+  gz_type_name: gz.msgs.Image
+  direction: GZ_TO_ROS
+  qos_profile: SENSOR_DATA
+- ros_topic_name: <robot_namespace>/front_depth/camera_info
+  gz_topic_name: <robot_namespace>/front_depth/camera_info
+  ros_type_name: sensor_msgs/msg/CameraInfo
+  gz_type_name: gz.msgs.CameraInfo
+  direction: GZ_TO_ROS
+  qos_profile: SENSOR_DATA
+- ros_topic_name: <robot_namespace>/front_depth/points
+  gz_topic_name: <robot_namespace>/front_depth/points
+  ros_type_name: sensor_msgs/msg/PointCloud2
+  gz_type_name: gz.msgs.PointCloudPacked
+  direction: GZ_TO_ROS
+  qos_profile: SENSOR_DATA
 - ros_topic_name: <robot_namespace>/navsat
   gz_topic_name: <robot_namespace>/navsat
   ros_type_name: sensor_msgs/msg/NavSatFix

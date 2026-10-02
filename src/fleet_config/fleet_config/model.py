@@ -60,7 +60,7 @@ class Instance:
 
     @property
     def domain_id(self) -> int:
-        return self.index - 1
+        return 133
 
     @property
     def fleet_router_tcp_port(self) -> int:
@@ -68,7 +68,7 @@ class Instance:
 
     @property
     def gz_partition(self) -> str:
-        return f"sage_{self.index}"
+        return f"dator10_sage_{self.index}"
 
     def unit_router_tcp_port(self, unit_index: int) -> int:
         return UNIT_ROUTER_TCP_PORT_BASE + self.offset + unit_index

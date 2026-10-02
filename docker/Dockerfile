@@ -106,6 +106,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 FROM base AS simulation
 
+# Nav2 MPPI CPU compatibility fix for CPUs without AVX2/FMA
+COPY docker/nav2_cpu_fix/libmppi_controller.so /opt/ros/${ROS_DISTRO}/lib/libmppi_controller.so
+COPY docker/nav2_cpu_fix/libmppi_critics.so /opt/ros/${ROS_DISTRO}/lib/libmppi_critics.so
+
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \

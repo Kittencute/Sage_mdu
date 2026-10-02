@@ -44,7 +44,7 @@ In [Foxglove](https://foxglove.dev), choose Open connection, then Foxglove WebSo
 | --- | --- |
 | TerraScout | `ws://127.0.0.1:8765` |
 | AeroScout | `ws://127.0.0.1:8766` |
-| Station | `ws://127.0.0.1:8768` |
+| Station | `ws://127.0.0.1:8767` |
 
 ### Open a shell in a unit
 
