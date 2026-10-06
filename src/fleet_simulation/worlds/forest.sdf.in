@@ -55,18 +55,19 @@
       <link name="link">
         <collision name="collision">
           <geometry>
-            <plane>
-              <normal>0 0 1</normal>
-              <size>40 40</size>
-            </plane>
+            <mesh>
+              <uri>file:///workspace/install/fleet_simulation/share/fleet_simulation/terrain/forest_ground.obj</uri>
+              <scale>1 1 1</scale>
+            </mesh>
           </geometry>
         </collision>
+
         <visual name="visual">
           <geometry>
-            <plane>
-              <normal>0 0 1</normal>
-              <size>40 40</size>
-            </plane>
+            <mesh>
+              <uri>file:///workspace/install/fleet_simulation/share/fleet_simulation/terrain/forest_ground.obj</uri>
+              <scale>1 1 1</scale>
+            </mesh>
           </geometry>
           <material>
             <ambient>0.3 0.25 0.15 1</ambient>
@@ -82,166 +83,166 @@
       <pose>0 0 0 0 0 0</pose>
 
 
-      <include><name>pine_c01</name><uri>model://pine_tree</uri><pose>9.0 3.0 0 0 0 0.5</pose></include>
-      <include><name>pine_c02</name><uri>model://pine_tree</uri><pose>6.0 8.0 0 0 0 1.8</pose></include>
-      <include><name>pine_c03</name><uri>model://pine_tree</uri><pose>-3.0 10.0 0 0 0 2.9</pose></include>
-      <include><name>pine_c04</name><uri>model://pine_tree</uri><pose>-9.0 5.0 0 0 0 0.3</pose></include>
-      <include><name>pine_c05</name><uri>model://pine_tree</uri><pose>-10.0 -2.0 0 0 0 4.1</pose></include>
-      <include><name>pine_c06</name><uri>model://pine_tree</uri><pose>-7.0 -8.0 0 0 0 1.2</pose></include>
-      <include><name>pine_c07</name><uri>model://pine_tree</uri><pose>1.0 -11.0 0 0 0 3.5</pose></include>
-      <include><name>pine_c08</name><uri>model://pine_tree</uri><pose>8.0 -7.0 0 0 0 2.2</pose></include>
-      <include><name>pine_c09</name><uri>model://pine_tree</uri><pose>12.0 0.0 0 0 0 0.8</pose></include>
-      <include><name>pine_c10</name><uri>model://pine_tree</uri><pose>11.0 7.0 0 0 0 4.7</pose></include>
-      <include><name>pine_c11</name><uri>model://pine_tree</uri><pose>2.0 13.0 0 0 0 1.6</pose></include>
-      <include><name>pine_c12</name><uri>model://pine_tree</uri><pose>-12.0 -6.0 0 0 0 2.7</pose></include>
-      <include><name>pine_c13</name><uri>model://pine_tree</uri><pose>-4.0 -13.0 0 0 0 5.2</pose></include>
-      <include><name>pine_c14</name><uri>model://pine_tree</uri><pose>10.0 -10.0 0 0 0 0.9</pose></include>
+      <include><name>pine_c01</name><uri>model://pine_tree</uri><pose>9.000000 3.000000 2.337410 0 0 0.000000</pose></include>
+      <include><name>pine_c02</name><uri>model://pine_tree</uri><pose>6.000000 8.000000 3.674718 0 0 0.000000</pose></include>
+      <include><name>pine_c03</name><uri>model://pine_tree</uri><pose>-3.000000 10.000000 2.653643 0 0 0.000000</pose></include>
+      <include><name>pine_c04</name><uri>model://pine_tree</uri><pose>-9.000000 5.000000 2.464489 0 0 0.000000</pose></include>
+      <include><name>pine_c05</name><uri>model://pine_tree</uri><pose>-10.000000 -2.000000 2.739029 0 0 0.000000</pose></include>
+      <include><name>pine_c06</name><uri>model://pine_tree</uri><pose>-7.000000 -8.000000 2.963702 0 0 0.000000</pose></include>
+      <include><name>pine_c07</name><uri>model://pine_tree</uri><pose>1.000000 -11.000000 2.014199 0 0 0.000000</pose></include>
+      <include><name>pine_c08</name><uri>model://pine_tree</uri><pose>8.000000 -7.000000 1.301889 0 0 0.000000</pose></include>
+      <include><name>pine_c09</name><uri>model://pine_tree</uri><pose>12.000000 0.000000 2.668655 0 0 0.000000</pose></include>
+      <include><name>pine_c10</name><uri>model://pine_tree</uri><pose>11.000000 7.000000 2.544348 0 0 0.000000</pose></include>
+      <include><name>pine_c11</name><uri>model://pine_tree</uri><pose>2.000000 13.000000 2.968162 0 0 0.000000</pose></include>
+      <include><name>pine_c12</name><uri>model://pine_tree</uri><pose>-12.000000 -6.000000 2.728911 0 0 0.000000</pose></include>
+      <include><name>pine_c13</name><uri>model://pine_tree</uri><pose>-4.000000 -13.000000 3.260579 0 0 0.000000</pose></include>
+      <include><name>pine_c14</name><uri>model://pine_tree</uri><pose>10.000000 -10.000000 2.159887 0 0 0.000000</pose></include>
 
-      <include><name>oak_c01</name><uri>model://oak_tree</uri><pose>-8.0 9.0 0 0 0 1.4</pose></include>
-      <include><name>oak_c02</name><uri>model://oak_tree</uri><pose>-13.0 1.0 0 0 0 3.3</pose></include>
-      <include><name>oak_c03</name><uri>model://oak_tree</uri><pose>0.0 -14.0 0 0 0 0.1</pose></include>
-      <include><name>oak_c04</name><uri>model://oak_tree</uri><pose>13.0 -4.0 0 0 0 2.4</pose></include>
-      <include><name>oak_c05</name><uri>model://oak_tree</uri><pose>8.0 11.0 0 0 0 4.9</pose></include>
-      <include><name>oak_c06</name><uri>model://oak_tree</uri><pose>-11.0 -10.0 0 0 0 1.1</pose></include>
-
-
-      <include><name>pine_i01</name><uri>model://pine_tree</uri><pose>10.5 2.0 0 0 0 0.5</pose></include>
-      <include><name>pine_i02</name><uri>model://pine_tree</uri><pose>8.5 7.0 0 0 0 1.2</pose></include>
-      <include><name>pine_i03</name><uri>model://pine_tree</uri><pose>3.5 11.0 0 0 0 2.1</pose></include>
-      <include><name>pine_i04</name><uri>model://pine_tree</uri><pose>-4.0 10.5 0 0 0 0.8</pose></include>
-      <include><name>pine_i05</name><uri>model://pine_tree</uri><pose>-9.5 5.5 0 0 0 3.5</pose></include>
-      <include><name>pine_i06</name><uri>model://pine_tree</uri><pose>-11.0 -1.5 0 0 0 1.9</pose></include>
-      <include><name>pine_i07</name><uri>model://pine_tree</uri><pose>-8.0 -8.0 0 0 0 4.2</pose></include>
-      <include><name>pine_i08</name><uri>model://pine_tree</uri><pose>-2.5 -11.5 0 0 0 2.8</pose></include>
-      <include><name>pine_i09</name><uri>model://pine_tree</uri><pose>5.0 -10.0 0 0 0 1.1</pose></include>
-      <include><name>pine_i10</name><uri>model://pine_tree</uri><pose>10.0 -5.0 0 0 0 2.4</pose></include>
-      <include><name>pine_i11</name><uri>model://pine_tree</uri><pose>12.0 0.0 0 0 0 0.3</pose></include>
-      <include><name>pine_i12</name><uri>model://pine_tree</uri><pose>6.0 10.5 0 0 0 3.9</pose></include>
-      <include><name>pine_i13</name><uri>model://pine_tree</uri><pose>-6.5 9.0 0 0 0 1.6</pose></include>
-      <include><name>pine_i14</name><uri>model://pine_tree</uri><pose>-10.5 3.0 0 0 0 4.8</pose></include>
-      <include><name>pine_i15</name><uri>model://pine_tree</uri><pose>-5.0 -10.0 0 0 0 2.2</pose></include>
-      <include><name>pine_i16</name><uri>model://pine_tree</uri><pose>8.0 -8.5 0 0 0 0.7</pose></include>
-      <include><name>pine_i17</name><uri>model://pine_tree</uri><pose>0.0 12.0 0 0 0 5.1</pose></include>
-
-      <include><name>oak_i01</name><uri>model://oak_tree</uri><pose>11.5 -2.5 0 0 0 1.4</pose></include>
-      <include><name>oak_i02</name><uri>model://oak_tree</uri><pose>-1.0 11.5 0 0 0 3.1</pose></include>
-      <include><name>oak_i03</name><uri>model://oak_tree</uri><pose>-11.5 -4.0 0 0 0 0.2</pose></include>
-      <include><name>oak_i04</name><uri>model://oak_tree</uri><pose>1.5 -11.0 0 0 0 2.6</pose></include>
-      <include><name>oak_i05</name><uri>model://oak_tree</uri><pose>-8.5 7.5 0 0 0 4.4</pose></include>
-      <include><name>oak_i06</name><uri>model://oak_tree</uri><pose>9.0 5.5 0 0 0 1.8</pose></include>
-      <include><name>oak_i07</name><uri>model://oak_tree</uri><pose>-3.0 -12.5 0 0 0 3.7</pose></include>
-      <include><name>oak_i08</name><uri>model://oak_tree</uri><pose>10.5 -7.0 0 0 0 0.9</pose></include>
+      <include><name>oak_c01</name><uri>model://oak_tree</uri><pose>-8.000000 9.000000 3.037027 0 0 0.000000</pose></include>
+      <include><name>oak_c02</name><uri>model://oak_tree</uri><pose>-13.000000 1.000000 2.842558 0 0 0.000000</pose></include>
+      <include><name>oak_c03</name><uri>model://oak_tree</uri><pose>0.000000 -14.000000 3.033686 0 0 0.000000</pose></include>
+      <include><name>oak_c04</name><uri>model://oak_tree</uri><pose>13.000000 -4.000000 2.435420 0 0 0.000000</pose></include>
+      <include><name>oak_c05</name><uri>model://oak_tree</uri><pose>8.000000 11.000000 3.323558 0 0 0.000000</pose></include>
+      <include><name>oak_c06</name><uri>model://oak_tree</uri><pose>-11.000000 -10.000000 2.316934 0 0 0.000000</pose></include>
 
 
-      <include><name>pine_m01</name><uri>model://pine_tree</uri><pose>15.5 3.0 0 0 0 0.5</pose></include>
-      <include><name>pine_m02</name><uri>model://pine_tree</uri><pose>14.0 8.0 0 0 0 1.2</pose></include>
-      <include><name>pine_m03</name><uri>model://pine_tree</uri><pose>10.0 13.0 0 0 0 2.1</pose></include>
-      <include><name>pine_m04</name><uri>model://pine_tree</uri><pose>5.0 15.5 0 0 0 0.8</pose></include>
-      <include><name>pine_m05</name><uri>model://pine_tree</uri><pose>-2.0 16.0 0 0 0 3.5</pose></include>
-      <include><name>pine_m06</name><uri>model://pine_tree</uri><pose>-8.5 13.5 0 0 0 1.9</pose></include>
-      <include><name>pine_m07</name><uri>model://pine_tree</uri><pose>-13.5 9.0 0 0 0 4.2</pose></include>
-      <include><name>pine_m08</name><uri>model://pine_tree</uri><pose>-16.0 2.5 0 0 0 2.8</pose></include>
-      <include><name>pine_m09</name><uri>model://pine_tree</uri><pose>-15.5 -4.0 0 0 0 1.1</pose></include>
-      <include><name>pine_m10</name><uri>model://pine_tree</uri><pose>-13.0 -10.0 0 0 0 2.4</pose></include>
-      <include><name>pine_m11</name><uri>model://pine_tree</uri><pose>-8.0 -14.0 0 0 0 0.3</pose></include>
-      <include><name>pine_m12</name><uri>model://pine_tree</uri><pose>-1.5 -16.5 0 0 0 3.9</pose></include>
-      <include><name>pine_m13</name><uri>model://pine_tree</uri><pose>6.0 -15.0 0 0 0 1.6</pose></include>
-      <include><name>pine_m14</name><uri>model://pine_tree</uri><pose>12.0 -11.5 0 0 0 4.8</pose></include>
-      <include><name>pine_m15</name><uri>model://pine_tree</uri><pose>15.0 -6.0 0 0 0 2.2</pose></include>
-      <include><name>pine_m16</name><uri>model://pine_tree</uri><pose>16.5 0.0 0 0 0 0.7</pose></include>
-      <include><name>pine_m17</name><uri>model://pine_tree</uri><pose>12.5 10.5 0 0 0 5.1</pose></include>
-      <include><name>pine_m18</name><uri>model://pine_tree</uri><pose>2.0 16.5 0 0 0 1.4</pose></include>
-      <include><name>pine_m19</name><uri>model://pine_tree</uri><pose>-5.5 15.0 0 0 0 3.1</pose></include>
-      <include><name>pine_m20</name><uri>model://pine_tree</uri><pose>-11.5 11.5 0 0 0 0.2</pose></include>
-      <include><name>pine_m21</name><uri>model://pine_tree</uri><pose>-15.0 5.5 0 0 0 2.6</pose></include>
-      <include><name>pine_m22</name><uri>model://pine_tree</uri><pose>-16.5 -1.0 0 0 0 4.4</pose></include>
-      <include><name>pine_m23</name><uri>model://pine_tree</uri><pose>-14.5 -7.0 0 0 0 1.8</pose></include>
-      <include><name>pine_m24</name><uri>model://pine_tree</uri><pose>-10.5 -12.5 0 0 0 3.7</pose></include>
-      <include><name>pine_m25</name><uri>model://pine_tree</uri><pose>-4.5 -15.5 0 0 0 0.9</pose></include>
-      <include><name>pine_m26</name><uri>model://pine_tree</uri><pose>3.0 -16.0 0 0 0 2.3</pose></include>
-      <include><name>pine_m27</name><uri>model://pine_tree</uri><pose>9.5 -13.5 0 0 0 4.1</pose></include>
-      <include><name>pine_m28</name><uri>model://pine_tree</uri><pose>14.5 -8.5 0 0 0 1.3</pose></include>
-      <include><name>pine_m29</name><uri>model://pine_tree</uri><pose>16.0 -3.0 0 0 0 3.4</pose></include>
-      <include><name>pine_m30</name><uri>model://pine_tree</uri><pose>15.0 5.5 0 0 0 0.4</pose></include>
-      <include><name>pine_m31</name><uri>model://pine_tree</uri><pose>7.5 14.5 0 0 0 2.9</pose></include>
+      <include><name>pine_i01</name><uri>model://pine_tree</uri><pose>10.500000 2.000000 2.332118 0 0 0.000000</pose></include>
+      <include><name>pine_i02</name><uri>model://pine_tree</uri><pose>8.500000 7.000000 3.036411 0 0 0.000000</pose></include>
+      <include><name>pine_i03</name><uri>model://pine_tree</uri><pose>3.500000 11.000000 3.597596 0 0 0.000000</pose></include>
+      <include><name>pine_i04</name><uri>model://pine_tree</uri><pose>-4.000000 10.500000 2.869314 0 0 0.000000</pose></include>
+      <include><name>pine_i05</name><uri>model://pine_tree</uri><pose>-9.500000 5.500000 2.538154 0 0 0.000000</pose></include>
+      <include><name>pine_i06</name><uri>model://pine_tree</uri><pose>-11.000000 -1.500000 2.752519 0 0 0.000000</pose></include>
+      <include><name>pine_i07</name><uri>model://pine_tree</uri><pose>-8.000000 -8.000000 2.827792 0 0 0.000000</pose></include>
+      <include><name>pine_i08</name><uri>model://pine_tree</uri><pose>-2.500000 -11.500000 3.032853 0 0 0.000000</pose></include>
+      <include><name>pine_i09</name><uri>model://pine_tree</uri><pose>5.000000 -10.000000 1.674620 0 0 0.000000</pose></include>
+      <include><name>pine_i10</name><uri>model://pine_tree</uri><pose>10.000000 -5.000000 1.879231 0 0 0.000000</pose></include>
+      <include><name>pine_i11</name><uri>model://pine_tree</uri><pose>12.000000 0.000000 2.668655 0 0 0.000000</pose></include>
+      <include><name>pine_i12</name><uri>model://pine_tree</uri><pose>6.000000 10.500000 3.885721 0 0 0.000000</pose></include>
+      <include><name>pine_i13</name><uri>model://pine_tree</uri><pose>-6.500000 9.000000 3.299738 0 0 0.000000</pose></include>
+      <include><name>pine_i14</name><uri>model://pine_tree</uri><pose>-10.500000 3.000000 2.272044 0 0 0.000000</pose></include>
+      <include><name>pine_i15</name><uri>model://pine_tree</uri><pose>-5.000000 -10.000000 3.482667 0 0 0.000000</pose></include>
+      <include><name>pine_i16</name><uri>model://pine_tree</uri><pose>8.000000 -8.500000 1.595344 0 0 0.000000</pose></include>
+      <include><name>pine_i17</name><uri>model://pine_tree</uri><pose>0.000000 12.000000 2.489489 0 0 0.000000</pose></include>
 
-      <include><name>oak_m01</name><uri>model://oak_tree</uri><pose>13.0 5.5 0 0 0 1.7</pose></include>
-      <include><name>oak_m02</name><uri>model://oak_tree</uri><pose>8.0 12.0 0 0 0 3.2</pose></include>
-      <include><name>oak_m03</name><uri>model://oak_tree</uri><pose>-0.5 15.5 0 0 0 0.1</pose></include>
-      <include><name>oak_m04</name><uri>model://oak_tree</uri><pose>-10.0 12.0 0 0 0 2.5</pose></include>
-      <include><name>oak_m05</name><uri>model://oak_tree</uri><pose>-14.5 3.5 0 0 0 4.6</pose></include>
-      <include><name>oak_m06</name><uri>model://oak_tree</uri><pose>-15.5 -5.5 0 0 0 1.0</pose></include>
-      <include><name>oak_m07</name><uri>model://oak_tree</uri><pose>-11.0 -11.0 0 0 0 3.8</pose></include>
-      <include><name>oak_m08</name><uri>model://oak_tree</uri><pose>-3.5 -15.0 0 0 0 0.6</pose></include>
-      <include><name>oak_m09</name><uri>model://oak_tree</uri><pose>7.0 -14.5 0 0 0 2.0</pose></include>
-      <include><name>oak_m10</name><uri>model://oak_tree</uri><pose>13.5 -9.0 0 0 0 4.3</pose></include>
-      <include><name>oak_m11</name><uri>model://oak_tree</uri><pose>16.5 -1.5 0 0 0 1.5</pose></include>
-      <include><name>oak_m12</name><uri>model://oak_tree</uri><pose>11.5 11.0 0 0 0 3.0</pose></include>
-      <include><name>oak_m13</name><uri>model://oak_tree</uri><pose>-6.5 14.0 0 0 0 5.5</pose></include>
-      <include><name>oak_m14</name><uri>model://oak_tree</uri><pose>-13.0 7.5 0 0 0 0.85</pose></include>
+      <include><name>oak_i01</name><uri>model://oak_tree</uri><pose>11.500000 -2.500000 2.217958 0 0 0.000000</pose></include>
+      <include><name>oak_i02</name><uri>model://oak_tree</uri><pose>-1.000000 11.500000 2.330611 0 0 0.000000</pose></include>
+      <include><name>oak_i03</name><uri>model://oak_tree</uri><pose>-11.500000 -4.000000 2.745195 0 0 0.000000</pose></include>
+      <include><name>oak_i04</name><uri>model://oak_tree</uri><pose>1.500000 -11.000000 1.918221 0 0 0.000000</pose></include>
+      <include><name>oak_i05</name><uri>model://oak_tree</uri><pose>-8.500000 7.500000 2.967424 0 0 0.000000</pose></include>
+      <include><name>oak_i06</name><uri>model://oak_tree</uri><pose>9.000000 5.500000 2.765210 0 0 0.000000</pose></include>
+      <include><name>oak_i07</name><uri>model://oak_tree</uri><pose>-3.000000 -12.500000 3.165398 0 0 0.000000</pose></include>
+      <include><name>oak_i08</name><uri>model://oak_tree</uri><pose>10.500000 -7.000000 1.798455 0 0 0.000000</pose></include>
 
 
-      <include><name>pine_o01</name><uri>model://pine_tree</uri><pose>18.5 3.5 0 0 0 0.5</pose></include>
-      <include><name>pine_o02</name><uri>model://pine_tree</uri><pose>18.0 7.0 0 0 0 1.2</pose></include>
-      <include><name>pine_o03</name><uri>model://pine_tree</uri><pose>16.5 10.5 0 0 0 2.1</pose></include>
-      <include><name>pine_o04</name><uri>model://pine_tree</uri><pose>14.0 14.0 0 0 0 0.8</pose></include>
-      <include><name>pine_o05</name><uri>model://pine_tree</uri><pose>10.5 16.5 0 0 0 3.5</pose></include>
-      <include><name>pine_o06</name><uri>model://pine_tree</uri><pose>6.0 18.0 0 0 0 1.9</pose></include>
-      <include><name>pine_o07</name><uri>model://pine_tree</uri><pose>1.5 19.0 0 0 0 4.2</pose></include>
-      <include><name>pine_o08</name><uri>model://pine_tree</uri><pose>-3.0 18.5 0 0 0 2.8</pose></include>
-      <include><name>pine_o09</name><uri>model://pine_tree</uri><pose>-7.5 17.5 0 0 0 1.1</pose></include>
-      <include><name>pine_o10</name><uri>model://pine_tree</uri><pose>-11.5 15.0 0 0 0 2.4</pose></include>
-      <include><name>pine_o11</name><uri>model://pine_tree</uri><pose>-15.0 12.0 0 0 0 0.3</pose></include>
-      <include><name>pine_o12</name><uri>model://pine_tree</uri><pose>-17.5 8.0 0 0 0 3.9</pose></include>
-      <include><name>pine_o13</name><uri>model://pine_tree</uri><pose>-19.0 3.5 0 0 0 1.6</pose></include>
-      <include><name>pine_o14</name><uri>model://pine_tree</uri><pose>-19.0 -1.0 0 0 0 4.8</pose></include>
-      <include><name>pine_o15</name><uri>model://pine_tree</uri><pose>-18.0 -5.5 0 0 0 2.2</pose></include>
-      <include><name>pine_o16</name><uri>model://pine_tree</uri><pose>-16.5 -10.0 0 0 0 0.7</pose></include>
-      <include><name>pine_o17</name><uri>model://pine_tree</uri><pose>-14.0 -14.0 0 0 0 5.1</pose></include>
-      <include><name>pine_o18</name><uri>model://pine_tree</uri><pose>-10.5 -16.5 0 0 0 1.4</pose></include>
-      <include><name>pine_o19</name><uri>model://pine_tree</uri><pose>-6.0 -18.0 0 0 0 3.1</pose></include>
-      <include><name>pine_o20</name><uri>model://pine_tree</uri><pose>-1.5 -19.0 0 0 0 0.2</pose></include>
-      <include><name>pine_o21</name><uri>model://pine_tree</uri><pose>3.0 -18.5 0 0 0 2.6</pose></include>
-      <include><name>pine_o22</name><uri>model://pine_tree</uri><pose>7.5 -17.5 0 0 0 4.4</pose></include>
-      <include><name>pine_o23</name><uri>model://pine_tree</uri><pose>11.5 -15.0 0 0 0 1.8</pose></include>
-      <include><name>pine_o24</name><uri>model://pine_tree</uri><pose>15.0 -12.0 0 0 0 3.7</pose></include>
-      <include><name>pine_o25</name><uri>model://pine_tree</uri><pose>17.5 -8.0 0 0 0 0.9</pose></include>
-      <include><name>pine_o26</name><uri>model://pine_tree</uri><pose>19.0 -3.5 0 0 0 2.3</pose></include>
-      <include><name>pine_o27</name><uri>model://pine_tree</uri><pose>19.0 1.0 0 0 0 4.1</pose></include>
-      <include><name>pine_o28</name><uri>model://pine_tree</uri><pose>17.0 5.5 0 0 0 1.3</pose></include>
-      <include><name>pine_o29</name><uri>model://pine_tree</uri><pose>15.5 9.0 0 0 0 3.4</pose></include>
-      <include><name>pine_o30</name><uri>model://pine_tree</uri><pose>12.5 13.0 0 0 0 0.4</pose></include>
-      <include><name>pine_o31</name><uri>model://pine_tree</uri><pose>8.5 16.0 0 0 0 2.9</pose></include>
-      <include><name>pine_o32</name><uri>model://pine_tree</uri><pose>4.0 18.5 0 0 0 5.5</pose></include>
-      <include><name>pine_o33</name><uri>model://pine_tree</uri><pose>-0.5 19.0 0 0 0 0.85</pose></include>
-      <include><name>pine_o34</name><uri>model://pine_tree</uri><pose>-5.0 18.0 0 0 0 1.7</pose></include>
-      <include><name>pine_o35</name><uri>model://pine_tree</uri><pose>-9.5 16.0 0 0 0 3.2</pose></include>
-      <include><name>pine_o36</name><uri>model://pine_tree</uri><pose>-13.5 13.0 0 0 0 0.1</pose></include>
-      <include><name>pine_o37</name><uri>model://pine_tree</uri><pose>-16.5 9.5 0 0 0 2.5</pose></include>
-      <include><name>pine_o38</name><uri>model://pine_tree</uri><pose>-18.5 5.0 0 0 0 4.6</pose></include>
-      <include><name>pine_o39</name><uri>model://pine_tree</uri><pose>-19.0 0.5 0 0 0 1.0</pose></include>
-      <include><name>pine_o40</name><uri>model://pine_tree</uri><pose>-18.5 -4.0 0 0 0 3.8</pose></include>
-      <include><name>pine_o41</name><uri>model://pine_tree</uri><pose>-17.0 -8.5 0 0 0 0.6</pose></include>
-      <include><name>pine_o42</name><uri>model://pine_tree</uri><pose>-15.0 -12.5 0 0 0 2.0</pose></include>
+      <include><name>pine_m01</name><uri>model://pine_tree</uri><pose>15.500000 3.000000 2.677579 0 0 0.000000</pose></include>
+      <include><name>pine_m02</name><uri>model://pine_tree</uri><pose>14.000000 8.000000 2.774209 0 0 0.000000</pose></include>
+      <include><name>pine_m03</name><uri>model://pine_tree</uri><pose>10.000000 13.000000 2.630822 0 0 0.000000</pose></include>
+      <include><name>pine_m04</name><uri>model://pine_tree</uri><pose>5.000000 15.500000 4.060663 0 0 0.000000</pose></include>
+      <include><name>pine_m05</name><uri>model://pine_tree</uri><pose>-2.000000 16.000000 2.425859 0 0 0.000000</pose></include>
+      <include><name>pine_m06</name><uri>model://pine_tree</uri><pose>-8.500000 13.500000 1.719955 0 0 0.000000</pose></include>
+      <include><name>pine_m07</name><uri>model://pine_tree</uri><pose>-13.500000 9.000000 2.880343 0 0 0.000000</pose></include>
+      <include><name>pine_m08</name><uri>model://pine_tree</uri><pose>-16.000000 2.500000 3.240414 0 0 0.000000</pose></include>
+      <include><name>pine_m09</name><uri>model://pine_tree</uri><pose>-15.500000 -4.000000 1.704426 0 0 0.000000</pose></include>
+      <include><name>pine_m10</name><uri>model://pine_tree</uri><pose>-13.000000 -10.000000 1.992297 0 0 0.000000</pose></include>
+      <include><name>pine_m11</name><uri>model://pine_tree</uri><pose>-8.000000 -14.000000 2.628578 0 0 0.000000</pose></include>
+      <include><name>pine_m12</name><uri>model://pine_tree</uri><pose>-1.500000 -16.500000 3.837494 0 0 0.000000</pose></include>
+      <include><name>pine_m13</name><uri>model://pine_tree</uri><pose>6.000000 -15.000000 2.344530 0 0 0.000000</pose></include>
+      <include><name>pine_m14</name><uri>model://pine_tree</uri><pose>12.000000 -11.500000 2.223150 0 0 0.000000</pose></include>
+      <include><name>pine_m15</name><uri>model://pine_tree</uri><pose>15.000000 -6.000000 2.388447 0 0 0.000000</pose></include>
+      <include><name>pine_m16</name><uri>model://pine_tree</uri><pose>16.500000 0.000000 3.177182 0 0 0.000000</pose></include>
+      <include><name>pine_m17</name><uri>model://pine_tree</uri><pose>12.500000 10.500000 2.709681 0 0 0.000000</pose></include>
+      <include><name>pine_m18</name><uri>model://pine_tree</uri><pose>2.000000 16.500000 3.327023 0 0 0.000000</pose></include>
+      <include><name>pine_m19</name><uri>model://pine_tree</uri><pose>-5.500000 15.000000 2.259840 0 0 0.000000</pose></include>
+      <include><name>pine_m20</name><uri>model://pine_tree</uri><pose>-11.500000 11.500000 2.197796 0 0 0.000000</pose></include>
+      <include><name>pine_m21</name><uri>model://pine_tree</uri><pose>-15.000000 5.500000 3.032438 0 0 0.000000</pose></include>
+      <include><name>pine_m22</name><uri>model://pine_tree</uri><pose>-16.500000 -1.000000 2.930257 0 0 0.000000</pose></include>
+      <include><name>pine_m23</name><uri>model://pine_tree</uri><pose>-14.500000 -7.000000 2.109522 0 0 0.000000</pose></include>
+      <include><name>pine_m24</name><uri>model://pine_tree</uri><pose>-10.500000 -12.500000 1.942213 0 0 0.000000</pose></include>
+      <include><name>pine_m25</name><uri>model://pine_tree</uri><pose>-4.500000 -15.500000 3.474336 0 0 0.000000</pose></include>
+      <include><name>pine_m26</name><uri>model://pine_tree</uri><pose>3.000000 -16.000000 2.643820 0 0 0.000000</pose></include>
+      <include><name>pine_m27</name><uri>model://pine_tree</uri><pose>9.500000 -13.500000 2.861257 0 0 0.000000</pose></include>
+      <include><name>pine_m28</name><uri>model://pine_tree</uri><pose>14.500000 -8.500000 2.090194 0 0 0.000000</pose></include>
+      <include><name>pine_m29</name><uri>model://pine_tree</uri><pose>16.000000 -3.000000 2.752341 0 0 0.000000</pose></include>
+      <include><name>pine_m30</name><uri>model://pine_tree</uri><pose>15.000000 5.500000 2.611961 0 0 0.000000</pose></include>
+      <include><name>pine_m31</name><uri>model://pine_tree</uri><pose>7.500000 14.500000 3.425981 0 0 0.000000</pose></include>
 
-      <include><name>oak_o01</name><uri>model://oak_tree</uri><pose>18.5 0.0 0 0 0 1.7</pose></include>
-      <include><name>oak_o02</name><uri>model://oak_tree</uri><pose>17.5 6.5 0 0 0 3.2</pose></include>
-      <include><name>oak_o03</name><uri>model://oak_tree</uri><pose>14.5 12.5 0 0 0 0.1</pose></include>
-      <include><name>oak_o04</name><uri>model://oak_tree</uri><pose>9.0 17.0 0 0 0 2.5</pose></include>
-      <include><name>oak_o05</name><uri>model://oak_tree</uri><pose>2.5 18.5 0 0 0 4.6</pose></include>
-      <include><name>oak_o06</name><uri>model://oak_tree</uri><pose>-4.0 18.0 0 0 0 1.0</pose></include>
-      <include><name>oak_o07</name><uri>model://oak_tree</uri><pose>-10.0 15.5 0 0 0 3.8</pose></include>
-      <include><name>oak_o08</name><uri>model://oak_tree</uri><pose>-15.5 11.0 0 0 0 0.6</pose></include>
-      <include><name>oak_o09</name><uri>model://oak_tree</uri><pose>-18.0 5.5 0 0 0 2.0</pose></include>
-      <include><name>oak_o10</name><uri>model://oak_tree</uri><pose>-18.5 -2.0 0 0 0 4.3</pose></include>
-      <include><name>oak_o11</name><uri>model://oak_tree</uri><pose>-17.0 -7.5 0 0 0 1.5</pose></include>
-      <include><name>oak_o12</name><uri>model://oak_tree</uri><pose>-14.0 -13.0 0 0 0 3.0</pose></include>
-      <include><name>oak_o13</name><uri>model://oak_tree</uri><pose>-9.0 -16.5 0 0 0 5.5</pose></include>
-      <include><name>oak_o14</name><uri>model://oak_tree</uri><pose>-3.0 -18.5 0 0 0 0.85</pose></include>
-      <include><name>oak_o15</name><uri>model://oak_tree</uri><pose>4.5 -18.0 0 0 0 2.7</pose></include>
-      <include><name>oak_o16</name><uri>model://oak_tree</uri><pose>10.0 -16.0 0 0 0 4.0</pose></include>
-      <include><name>oak_o17</name><uri>model://oak_tree</uri><pose>15.0 -11.5 0 0 0 1.2</pose></include>
-      <include><name>oak_o18</name><uri>model://oak_tree</uri><pose>18.0 -5.5 0 0 0 3.6</pose></include>
+      <include><name>oak_m01</name><uri>model://oak_tree</uri><pose>13.000000 5.500000 2.412773 0 0 0.000000</pose></include>
+      <include><name>oak_m02</name><uri>model://oak_tree</uri><pose>8.000000 12.000000 3.403177 0 0 0.000000</pose></include>
+      <include><name>oak_m03</name><uri>model://oak_tree</uri><pose>-0.500000 15.500000 2.688603 0 0 0.000000</pose></include>
+      <include><name>oak_m04</name><uri>model://oak_tree</uri><pose>-10.000000 12.000000 2.053259 0 0 0.000000</pose></include>
+      <include><name>oak_m05</name><uri>model://oak_tree</uri><pose>-14.500000 3.500000 3.051690 0 0 0.000000</pose></include>
+      <include><name>oak_m06</name><uri>model://oak_tree</uri><pose>-15.500000 -5.500000 1.584178 0 0 0.000000</pose></include>
+      <include><name>oak_m07</name><uri>model://oak_tree</uri><pose>-11.000000 -11.000000 2.124347 0 0 0.000000</pose></include>
+      <include><name>oak_m08</name><uri>model://oak_tree</uri><pose>-3.500000 -15.000000 3.465753 0 0 0.000000</pose></include>
+      <include><name>oak_m09</name><uri>model://oak_tree</uri><pose>7.000000 -14.500000 2.585487 0 0 0.000000</pose></include>
+      <include><name>oak_m10</name><uri>model://oak_tree</uri><pose>13.500000 -9.000000 1.967046 0 0 0.000000</pose></include>
+      <include><name>oak_m11</name><uri>model://oak_tree</uri><pose>16.500000 -1.500000 3.079607 0 0 0.000000</pose></include>
+      <include><name>oak_m12</name><uri>model://oak_tree</uri><pose>11.500000 11.000000 2.603620 0 0 0.000000</pose></include>
+      <include><name>oak_m13</name><uri>model://oak_tree</uri><pose>-6.500000 14.000000 2.051256 0 0 0.000000</pose></include>
+      <include><name>oak_m14</name><uri>model://oak_tree</uri><pose>-13.000000 7.500000 2.719528 0 0 0.000000</pose></include>
+
+
+      <include><name>pine_o01</name><uri>model://pine_tree</uri><pose>18.500000 3.500000 3.300671 0 0 0.000000</pose></include>
+      <include><name>pine_o02</name><uri>model://pine_tree</uri><pose>18.000000 7.000000 3.135292 0 0 0.000000</pose></include>
+      <include><name>pine_o03</name><uri>model://pine_tree</uri><pose>16.500000 10.500000 2.906167 0 0 0.000000</pose></include>
+      <include><name>pine_o04</name><uri>model://pine_tree</uri><pose>14.000000 14.000000 2.511360 0 0 0.000000</pose></include>
+      <include><name>pine_o05</name><uri>model://pine_tree</uri><pose>10.500000 16.500000 1.498921 0 0 0.000000</pose></include>
+      <include><name>pine_o06</name><uri>model://pine_tree</uri><pose>6.000000 18.000000 3.422687 0 0 0.000000</pose></include>
+      <include><name>pine_o07</name><uri>model://pine_tree</uri><pose>1.500000 19.000000 2.804983 0 0 0.000000</pose></include>
+      <include><name>pine_o08</name><uri>model://pine_tree</uri><pose>-3.000000 18.500000 2.083782 0 0 0.000000</pose></include>
+      <include><name>pine_o09</name><uri>model://pine_tree</uri><pose>-7.500000 17.500000 1.844655 0 0 0.000000</pose></include>
+      <include><name>pine_o10</name><uri>model://pine_tree</uri><pose>-11.500000 15.000000 2.219037 0 0 0.000000</pose></include>
+      <include><name>pine_o11</name><uri>model://pine_tree</uri><pose>-15.000000 12.000000 3.119728 0 0 0.000000</pose></include>
+      <include><name>pine_o12</name><uri>model://pine_tree</uri><pose>-17.500000 8.000000 3.287089 0 0 0.000000</pose></include>
+      <include><name>pine_o13</name><uri>model://pine_tree</uri><pose>-19.000000 3.500000 3.475399 0 0 0.000000</pose></include>
+      <include><name>pine_o14</name><uri>model://pine_tree</uri><pose>-19.000000 -1.000000 3.205336 0 0 0.000000</pose></include>
+      <include><name>pine_o15</name><uri>model://pine_tree</uri><pose>-18.000000 -5.500000 0.708495 0 0 0.000000</pose></include>
+      <include><name>pine_o16</name><uri>model://pine_tree</uri><pose>-16.500000 -10.000000 0.676782 0 0 0.000000</pose></include>
+      <include><name>pine_o17</name><uri>model://pine_tree</uri><pose>-14.000000 -14.000000 0.906714 0 0 0.000000</pose></include>
+      <include><name>pine_o18</name><uri>model://pine_tree</uri><pose>-10.500000 -16.500000 2.601275 0 0 0.000000</pose></include>
+      <include><name>pine_o19</name><uri>model://pine_tree</uri><pose>-6.000000 -18.000000 3.497026 0 0 0.000000</pose></include>
+      <include><name>pine_o20</name><uri>model://pine_tree</uri><pose>-1.500000 -19.000000 4.076183 0 0 0.000000</pose></include>
+      <include><name>pine_o21</name><uri>model://pine_tree</uri><pose>3.000000 -18.500000 3.182704 0 0 0.000000</pose></include>
+      <include><name>pine_o22</name><uri>model://pine_tree</uri><pose>7.500000 -17.500000 2.663027 0 0 0.000000</pose></include>
+      <include><name>pine_o23</name><uri>model://pine_tree</uri><pose>11.500000 -15.000000 2.865369 0 0 0.000000</pose></include>
+      <include><name>pine_o24</name><uri>model://pine_tree</uri><pose>15.000000 -12.000000 2.156149 0 0 0.000000</pose></include>
+      <include><name>pine_o25</name><uri>model://pine_tree</uri><pose>17.500000 -8.000000 2.394990 0 0 0.000000</pose></include>
+      <include><name>pine_o26</name><uri>model://pine_tree</uri><pose>19.000000 -3.500000 2.962131 0 0 0.000000</pose></include>
+      <include><name>pine_o27</name><uri>model://pine_tree</uri><pose>19.000000 1.000000 3.236451 0 0 0.000000</pose></include>
+      <include><name>pine_o28</name><uri>model://pine_tree</uri><pose>17.000000 5.500000 2.968070 0 0 0.000000</pose></include>
+      <include><name>pine_o29</name><uri>model://pine_tree</uri><pose>15.500000 9.000000 2.808261 0 0 0.000000</pose></include>
+      <include><name>pine_o30</name><uri>model://pine_tree</uri><pose>12.500000 13.000000 2.464331 0 0 0.000000</pose></include>
+      <include><name>pine_o31</name><uri>model://pine_tree</uri><pose>8.500000 16.000000 2.454095 0 0 0.000000</pose></include>
+      <include><name>pine_o32</name><uri>model://pine_tree</uri><pose>4.000000 18.500000 3.631656 0 0 0.000000</pose></include>
+      <include><name>pine_o33</name><uri>model://pine_tree</uri><pose>-0.500000 19.000000 2.302420 0 0 0.000000</pose></include>
+      <include><name>pine_o34</name><uri>model://pine_tree</uri><pose>-5.000000 18.000000 2.102837 0 0 0.000000</pose></include>
+      <include><name>pine_o35</name><uri>model://pine_tree</uri><pose>-9.500000 16.000000 1.700167 0 0 0.000000</pose></include>
+      <include><name>pine_o36</name><uri>model://pine_tree</uri><pose>-13.500000 13.000000 2.786691 0 0 0.000000</pose></include>
+      <include><name>pine_o37</name><uri>model://pine_tree</uri><pose>-16.500000 9.500000 3.282448 0 0 0.000000</pose></include>
+      <include><name>pine_o38</name><uri>model://pine_tree</uri><pose>-18.500000 5.000000 3.524713 0 0 0.000000</pose></include>
+      <include><name>pine_o39</name><uri>model://pine_tree</uri><pose>-19.000000 0.500000 3.214769 0 0 0.000000</pose></include>
+      <include><name>pine_o40</name><uri>model://pine_tree</uri><pose>-18.500000 -4.000000 1.446492 0 0 0.000000</pose></include>
+      <include><name>pine_o41</name><uri>model://pine_tree</uri><pose>-17.000000 -8.500000 0.949607 0 0 0.000000</pose></include>
+      <include><name>pine_o42</name><uri>model://pine_tree</uri><pose>-15.000000 -12.500000 0.697447 0 0 0.000000</pose></include>
+
+      <include><name>oak_o01</name><uri>model://oak_tree</uri><pose>18.500000 0.000000 3.367353 0 0 0.000000</pose></include>
+      <include><name>oak_o02</name><uri>model://oak_tree</uri><pose>17.500000 6.500000 3.061664 0 0 0.000000</pose></include>
+      <include><name>oak_o03</name><uri>model://oak_tree</uri><pose>14.500000 12.500000 2.780983 0 0 0.000000</pose></include>
+      <include><name>oak_o04</name><uri>model://oak_tree</uri><pose>9.000000 17.000000 1.847362 0 0 0.000000</pose></include>
+      <include><name>oak_o05</name><uri>model://oak_tree</uri><pose>2.500000 18.500000 3.201786 0 0 0.000000</pose></include>
+      <include><name>oak_o06</name><uri>model://oak_tree</uri><pose>-4.000000 18.000000 2.145550 0 0 0.000000</pose></include>
+      <include><name>oak_o07</name><uri>model://oak_tree</uri><pose>-10.000000 15.500000 1.712663 0 0 0.000000</pose></include>
+      <include><name>oak_o08</name><uri>model://oak_tree</uri><pose>-15.500000 11.000000 3.218129 0 0 0.000000</pose></include>
+      <include><name>oak_o09</name><uri>model://oak_tree</uri><pose>-18.000000 5.500000 3.440195 0 0 0.000000</pose></include>
+      <include><name>oak_o10</name><uri>model://oak_tree</uri><pose>-18.500000 -2.000000 2.960565 0 0 0.000000</pose></include>
+      <include><name>oak_o11</name><uri>model://oak_tree</uri><pose>-17.000000 -7.500000 1.060952 0 0 0.000000</pose></include>
+      <include><name>oak_o12</name><uri>model://oak_tree</uri><pose>-14.000000 -13.000000 0.971828 0 0 0.000000</pose></include>
+      <include><name>oak_o13</name><uri>model://oak_tree</uri><pose>-9.000000 -16.500000 2.885336 0 0 0.000000</pose></include>
+      <include><name>oak_o14</name><uri>model://oak_tree</uri><pose>-3.000000 -18.500000 4.068032 0 0 0.000000</pose></include>
+      <include><name>oak_o15</name><uri>model://oak_tree</uri><pose>4.500000 -18.000000 2.883742 0 0 0.000000</pose></include>
+      <include><name>oak_o16</name><uri>model://oak_tree</uri><pose>10.000000 -16.000000 2.572911 0 0 0.000000</pose></include>
+      <include><name>oak_o17</name><uri>model://oak_tree</uri><pose>15.000000 -11.500000 2.081055 0 0 0.000000</pose></include>
+      <include><name>oak_o18</name><uri>model://oak_tree</uri><pose>18.000000 -5.500000 2.565816 0 0 0.000000</pose></include>
 
     </model>
 

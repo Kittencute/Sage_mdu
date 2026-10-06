@@ -18,5 +18,6 @@ target_link_libraries(velocity_command_timeout PRIVATE gz-sim::gz-sim gz-plugin:
 install(TARGETS velocity_command_timeout LIBRARY DESTINATION lib)
 install(PROGRAMS src/simulated_battery.py DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY models DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY terrain DESTINATION share/${PROJECT_NAME})
 
 ament_package()
