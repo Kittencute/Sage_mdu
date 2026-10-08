@@ -15,6 +15,8 @@ set(FLEET_INTERFACES_MSG_FILES
   msg/MissionState.msg
   action/ExecuteMission.action
   srv/ControlMission.srv
+  srv/GetKeepoutZone.srv
+  srv/SetKeepoutZone.srv
 )
 
 rosidl_generate_interfaces(${PROJECT_NAME}

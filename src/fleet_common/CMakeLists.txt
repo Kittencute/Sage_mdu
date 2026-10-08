@@ -12,6 +12,7 @@ ament_python_install_package(${PROJECT_NAME})
 
 install(PROGRAMS
   fleet_common/send_mission.py
+  fleet_common/keepout_zone.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

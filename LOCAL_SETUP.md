@@ -219,3 +219,162 @@ def gz_partition(self) -> str:
 ```
 
 This keeps the ROS 2 and Gazebo simulations separated between development computers.
+
+---
+
+## 6. Keepout-Zone Implementation Map
+
+Files changed for the keepout-zone implementation:
+
+```text
+src/fleet_common/CMakeLists.txt
+src/fleet_common/fleet_common/keepout_zone.py
+
+src/fleet_interfaces/CMakeLists.txt
+src/fleet_interfaces/srv/GetKeepoutZone.srv
+src/fleet_interfaces/srv/SetKeepoutZone.srv
+
+src/fleet_config/fleet_config/classes/terrascout.py
+
+src/terrascout_mission/CMakeLists.txt
+src/terrascout_mission/package.xml
+src/terrascout_mission/terrascout_mission/keepout_geometry.py
+src/terrascout_mission/terrascout_mission/keepout_server.py
+src/terrascout_mission/test/test_keepout_geometry.py
+src/terrascout_mission/config/simulation/foxglove_bridge.yaml
+src/terrascout_mission/config/physical/foxglove_bridge.yaml
+
+src/terrascout_navigation/config/nav2.yaml
+```
+
+### fleet_common
+
+#### `src/fleet_common/CMakeLists.txt`
+
+Installs keepout CLI scripts into the ROS package runtime path (`lib/fleet_common`) so they can be run through `ros2 run`.
+
+#### `src/fleet_common/fleet_common/keepout_zone.py`
+
+User-facing CLI and service client for keepout CRUD-style operations:
+
+- create/update (upsert): call `set_keepout_zone`
+- read: call `get_keepout_zone`
+- delete: call `set_keepout_zone` with `--clear`
+
+It validates numeric inputs for non-read, non-delete operations.
+
+---
+
+### fleet_interfaces
+
+#### `src/fleet_interfaces/CMakeLists.txt`
+
+Registers keepout interfaces for ROSIDL generation.
+
+#### `src/fleet_interfaces/srv/SetKeepoutZone.srv`
+
+Service contract for create/update/delete behavior:
+
+- request contains label + geometry fields + `clear`
+- response returns `accepted` and `reason`
+
+#### `src/fleet_interfaces/srv/GetKeepoutZone.srv`
+
+Service contract for read behavior:
+
+- request contains `label`
+- response returns `found`, `reason`, zone geometry, and `active`
+
+---
+
+### fleet_config
+
+#### `src/fleet_config/fleet_config/classes/terrascout.py`
+
+Adds and configures keepout server process startup for TerraScout.
+
+This is what wires keepout server execution into the normal unit lifecycle.
+
+---
+
+### terrascout_mission
+
+#### `src/terrascout_mission/CMakeLists.txt`
+
+Installs keepout runtime node and keepout unit tests as part of package build/testing.
+
+#### `src/terrascout_mission/package.xml`
+
+Declares dependencies required by keepout publication and server runtime (for example geometry message support).
+
+#### `src/terrascout_mission/terrascout_mission/keepout_server.py`
+
+Runtime keepout server node. Responsibilities:
+
+- lock map datum from GNSS shim
+- serve `set_keepout_zone` and `get_keepout_zone`
+- manage in-memory zones by label
+- publish zone polygon to collision-monitor topic
+- publish sampled zone points to costmap obstacle `PointCloud2` topic
+- periodically republish active zone points for late subscribers
+
+Startup contract:
+
+- starts empty (no active keepout zone)
+- only publishes non-empty keepout data after a set/update request
+
+#### `src/terrascout_mission/terrascout_mission/keepout_geometry.py`
+
+Pure geometry helpers used by server logic and tests.
+
+#### `src/terrascout_mission/test/test_keepout_geometry.py`
+
+Regression tests for deterministic rectangle generation and geometry validation.
+
+#### `src/terrascout_mission/config/simulation/foxglove_bridge.yaml`
+
+Whitelists keepout topics so simulation Foxglove can visualize keepout polygon/point data.
+
+#### `src/terrascout_mission/config/physical/foxglove_bridge.yaml`
+
+Physical deployment equivalent of simulation whitelist so the same keepout topics are exposed.
+
+---
+
+### terrascout_navigation
+
+#### `src/terrascout_navigation/config/nav2.yaml`
+
+Adds keepout obstacle source to global and local costmap obstacle layers.
+
+Important integration points:
+
+- include keepout source in `observation_sources`
+- use `PointCloud2`
+- point topic to `/<robot_namespace>/keepout_obstacle_points`
+
+Without this, Nav2 does not consume keepout points even if server publishing works.
+
+---
+
+## 7. Runtime Support and Environment Setup
+
+These files are not keepout feature logic, but they must be valid for simulation/runtime verification:
+
+### `src/fleet_config/fleet_config/model.py`
+
+Defines machine/environment parameters such as ROS domain and Gazebo partitioning.
+
+If these are wrong, simulation isolation breaks and keepout validation may occur in the wrong ROS/Gazebo context.
+
+### `src/fleet_config/fleet_config/targets.py`
+
+Defines runnable targets and composition used by `make use`, `make build`, and `make up`.
+
+This selects which runtime graph is rendered and therefore whether keepout-enabled TerraScout stack is launched.
+
+### `src/terrascout_description/config/gz_bridge.yaml`
+
+Controls Gazebo↔ROS topic bridging for simulation sensors and robot interfaces.
+
+Not keepout-specific, but incorrect bridge setup can block dependent runtime behavior and make system-level keepout verification misleading.

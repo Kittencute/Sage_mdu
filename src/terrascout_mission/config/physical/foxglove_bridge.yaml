@@ -37,7 +37,10 @@
     - ^/<robot_namespace>/microstrain/imu/data$
     - ^/<robot_namespace>/microstrain/imu/mag$
     - ^/<robot_namespace>/obstacle_points$
+    - ^/<robot_namespace>/keepout_obstacle_points$
     - ^/<robot_namespace>/odom$
+    - ^/<robot_namespace>/polygon_stop$
+    - ^/<robot_namespace>/polygon_slowdown$
     - ^/<robot_namespace>/plan$
     - ^/<robot_namespace>/platform/safety_stop$
     - ^/<robot_namespace>/robot_description$
@@ -57,6 +60,7 @@
     - ^/<robot_namespace>/microstrain/imu/data$
     - ^/<robot_namespace>/microstrain/imu/mag$
     - ^/<robot_namespace>/obstacle_points$
+    - ^/<robot_namespace>/keepout_obstacle_points$
     client_topic_whitelist:
     - ^/<robot_namespace>/clicked_point$
     - ^/<robot_namespace>/cmd_vel_teleop$

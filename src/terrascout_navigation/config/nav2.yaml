@@ -129,7 +129,7 @@
         obstacle_layer:
           max_obstacle_height: 1000.0
           min_obstacle_height: -1000.0
-          observation_sources: obstacle_mark obstacle_clear
+          observation_sources: obstacle_mark obstacle_clear keepout_mark
           obstacle_clear:
             clearing: true
             data_type: PointCloud2
@@ -146,6 +146,13 @@
             min_obstacle_height: -1000.0
             obstacle_max_range: 20.0
             topic: /<robot_namespace>/obstacle_points
+          keepout_mark:
+            data_type: PointCloud2
+            expected_update_rate: 2.0
+            max_obstacle_height: 1000.0
+            min_obstacle_height: -1000.0
+            obstacle_max_range: 100.0
+            topic: /<robot_namespace>/keepout_obstacle_points
           plugin: nav2_costmap_2d::ObstacleLayer
         plugins:
         - obstacle_layer
@@ -170,7 +177,7 @@
         obstacle_layer:
           max_obstacle_height: 1000.0
           min_obstacle_height: -1000.0
-          observation_sources: obstacle_mark obstacle_clear
+          observation_sources: obstacle_mark obstacle_clear keepout_mark
           obstacle_clear:
             clearing: true
             data_type: PointCloud2
@@ -187,6 +194,13 @@
             min_obstacle_height: -1000.0
             obstacle_max_range: 12.0
             topic: /<robot_namespace>/obstacle_points
+          keepout_mark:
+            data_type: PointCloud2
+            expected_update_rate: 2.0
+            max_obstacle_height: 1000.0
+            min_obstacle_height: -1000.0
+            obstacle_max_range: 40.0
+            topic: /<robot_namespace>/keepout_obstacle_points
           plugin: nav2_costmap_2d::ObstacleLayer
         plugins:
         - obstacle_layer

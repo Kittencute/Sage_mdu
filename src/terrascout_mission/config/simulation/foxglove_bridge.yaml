@@ -42,8 +42,11 @@
     - ^/<robot_namespace>/microstrain/imu/mag$
     - ^/<robot_namespace>/navsat$
     - ^/<robot_namespace>/obstacle_points$
+    - ^/<robot_namespace>/keepout_obstacle_points$
     - ^/<robot_namespace>/odom$
     - ^/<robot_namespace>/odom_gt$
+    - ^/<robot_namespace>/polygon_stop$
+    - ^/<robot_namespace>/polygon_slowdown$
     - ^/<robot_namespace>/plan$
     - ^/<robot_namespace>/platform/safety_stop$
     - ^/<robot_namespace>/raw_points$
@@ -70,6 +73,7 @@
     - ^/<robot_namespace>/microstrain/imu/mag$
     - ^/<robot_namespace>/navsat$
     - ^/<robot_namespace>/obstacle_points$
+    - ^/<robot_namespace>/keepout_obstacle_points$
     - ^/<robot_namespace>/raw_points$
     - ^/<robot_namespace>/front_depth/image$
     - ^/<robot_namespace>/front_depth/points$

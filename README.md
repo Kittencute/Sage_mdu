@@ -52,7 +52,21 @@ In [Foxglove](https://foxglove.dev), choose Open connection, then Foxglove WebSo
 make shell SERVICE=unit-terrascout1
 ```
 
+
 The commands below run in this shell.
+
+### Keepout CRUD
+
+```sh
+# Create
+ros2 run fleet_common keepout_zone.py --namespace terrascout1 --label test_zone --longitude 8.545594 --latitude 47.397742 --x-length 4 --y-length 4
+# Read
+ros2 run fleet_common keepout_zone.py --namespace terrascout1 --label test_zone --read
+# Update (same label, new values)
+ros2 run fleet_common keepout_zone.py --namespace terrascout1 --label test_zone --longitude 8.545620 --latitude 47.397760 --x-length 6 --y-length 3 --yaw-deg 10
+# Delete
+ros2 run fleet_common keepout_zone.py --namespace terrascout1 --label test_zone --clear
+```
 
 ### Send a mission
 

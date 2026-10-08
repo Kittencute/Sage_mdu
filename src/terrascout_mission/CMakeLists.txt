@@ -10,6 +10,7 @@ install(DIRECTORY config/ DESTINATION share/${PROJECT_NAME}/config)
 
 install(PROGRAMS
   terrascout_mission/mission_server.py
+  terrascout_mission/keepout_server.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -18,6 +19,11 @@ if(BUILD_TESTING)
   ament_add_pytest_test(
     test_waypoint_geojson
     test/test_waypoint_geojson.py
+    APPEND_ENV PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}
+  )
+  ament_add_pytest_test(
+    test_keepout_geometry
+    test/test_keepout_geometry.py
     APPEND_ENV PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}
   )
 endif()

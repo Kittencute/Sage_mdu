@@ -1,0 +1,10 @@
+string label
+---
+bool found
+string reason
+float64 latitude
+float64 longitude
+float64 x_length
+float64 y_length
+float64 yaw_deg
+bool active

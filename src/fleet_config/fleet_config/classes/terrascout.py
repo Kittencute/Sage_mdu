@@ -135,6 +135,7 @@ DIFF_DRIVE_CONTROLLER = "diff_drive_controller"
 JOINT_STATE_BROADCASTER = "joint_state_broadcaster"
 CONTROLLERS_PARAMS = params_path("controllers.yaml")
 MISSION_SERVER = "mission_server"
+KEEPOUT_SERVER = "keepout_server"
 
 CAMERA_NAME = "front_camera"
 CAMERA_TOPIC = f"{CAMERA_NAME}/image"
@@ -673,6 +674,25 @@ def mission_server(unit: UnitContext, after: list[str]) -> Process:
     )
 
 
+def keepout_server(unit: UnitContext, after: list[str]) -> Process:
+    return node(
+        KEEPOUT_SERVER,
+        package=MISSION_PACKAGE,
+        executable="keepout_server.py",
+        node_name=KEEPOUT_SERVER,
+        namespace=unit.namespace,
+        param_values={
+            "global_frame": FRAME_GLOBAL,
+            "datum_topic": DATUM_TOPIC,
+            "zone_topic": "polygon_stop",
+            "obstacle_topic": "keepout_obstacle_points",
+            "publish_period_s": 1.0,
+        },
+        after=after,
+        ready=NodeProbe(f"/{unit.namespace}/{KEEPOUT_SERVER}"),
+    )
+
+
 def processes(unit: UnitContext) -> list[Process]:
     simulated = unit.mode == SIMULATION
     stage_after = [ROBOT_SPAWN, CLOCK_BRIDGE] if simulated else [CLOCK_SYNC]
@@ -697,7 +717,7 @@ def processes(unit: UnitContext) -> list[Process]:
     entries += teleop_processes(unit, stage_after)
     entries += foxglove_processes(unit, stage_after)
     entries += nav2_processes(unit, navigation_after)
-    entries += [mission_server(unit, [NAV2]), unit_agent(unit)]
+    entries += [mission_server(unit, [NAV2]), keepout_server(unit, [NAV2]), unit_agent(unit)]
     entries += madum_processes(unit)
     entries += recorder_process(unit, recorded_topics(unit))
     return entries
