@@ -68,11 +68,14 @@ ros2 run fleet_common keepout_zone.py --namespace terrascout1 --label test_zone 
 ros2 run fleet_common keepout_zone.py --namespace terrascout1 --label test_zone --clear
 ```
 
+For a colored semi-opaque keepout zone volume in Foxglove, add a 3D panel layer for `/terrascout1/keepout_zone_marker` (message type `visualization_msgs/msg/Marker`).
+
 ### Send a mission
 
 ```sh
 ros2 run fleet_common send_mission.py --namespace aeroscout1 --altitude 10 47.39785,8.54566
 ros2 run fleet_common send_mission.py --namespace terrascout1 --home 47.397742,8.545594 47.39781,8.545594
+ros2 run fleet_common send_mission.py --namespace terrascout1 --home 47.397742,8.545594 47.39802,8.54600
 ```
 
 The drone's home defaults to its current position.

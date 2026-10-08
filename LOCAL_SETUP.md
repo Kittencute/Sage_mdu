@@ -388,33 +388,54 @@ This section summarizes recent behavior changes made after the initial keepout i
 
 ### `src/terrascout_mission/terrascout_mission/keepout_server.py`
 
-- removed the guard that skipped publish when no active keepout points exist
-- keepout obstacle `PointCloud2` is now republished even when empty
+- continues publishing keepout data periodically, including empty keepout cloud when no zone is active
+- publishes a dedicated Foxglove marker topic (`keepout_zone_marker`) for a persistent colored keepout overlay
+- on keepout delete, requests immediate local and global Nav2 costmap clear services
 
 Result:
 
-- Nav2 keepout observation buffers stay fresh and do not timeout when no keepout zone is active
+- keepout deletion is reflected faster in Nav2 and in Foxglove costmap views
+- keepout visualization is available as an explicit overlay topic, independent of costmap windowing
 
 ### `src/terrascout_navigation/config/nav2.yaml`
 
-- `enforce_path_inversion: true -> false`
-- `vx_min: -0.35 -> 0.0` (disable reverse tracking bias)
-- `rotate_to_heading_angular_vel: 1.2 -> 0.7`
-- `wz_max: 1.68 -> 1.0`
-- `velocity_smoother.min_velocity[0]: -0.35 -> 0.0`
-- `planner_server.expected_planner_frequency: 5.0 -> 1.0`
+- keepout obstacle source enabled in both global and local obstacle layers
+- keepout obstacle range increased for farther zones:
+    - global `keepout_mark.obstacle_max_range: 1000.0`
+    - local `keepout_mark.obstacle_max_range: 200.0`
+- obstacle layer height filters are currently:
+    - `max_obstacle_height: 2.5`
+    - `min_obstacle_height: -0.3`
 
 Result:
 
-- less aggressive turn/reverse behavior and reduced replanning pressure
+- keepout zones are consumed at longer distances than before, but costmap display is still bounded by rolling-window behavior
 
 ### `src/terrascout_navigation/config/navigate_to_pose.xml`
 
-- replaced `PipelineSequence` with `Sequence`
-- removed periodic `RateController` + `IsPathValid` replanning loop
-- changed behavior from continuous validity polling to "compute path once, then follow"
-- replanning now occurs mainly via recovery/failure path
+- uses `PipelineSequence` with `RateController hz="0.2"`
+- replanning path check is done through `IsPathValid` and `GlobalUpdatedGoal`
+- keeps standard local/global costmap clearing recovery actions
 
 Result:
 
-- fewer path handoffs and reduced circling from replan churn
+- replanning is conservative (low frequency) and depends on path validity/goal updates, which reduces churn but can delay reaction to fast-changing blockage
+
+### `src/fleet_config/fleet_config/classes/terrascout.py`
+
+- keepout server launch params now include:
+    - `marker_topic: keepout_zone_marker`
+    - `publish_period_s: 0.2`
+
+Result:
+
+- keepout geometry and marker updates are republished faster for Foxglove and late subscribers
+
+### `src/terrascout_mission/config/simulation/foxglove_bridge.yaml`
+### `src/terrascout_mission/config/physical/foxglove_bridge.yaml`
+
+- both simulation and physical Foxglove bridges whitelist `/<robot_namespace>/keepout_zone_marker`
+
+Result:
+
+- Foxglove can render a dedicated colored keepout overlay layer directly from marker messages

@@ -24,8 +24,11 @@ Z = large + 0.25 * medium
 Z -= Z.min()
 Z /= Z.max()
 
-# Trees should sit on the terrain surface and then be lifted by a small tuning
-# offset so the base is above the ground without ignoring the hill heights.
+# Override the previously generated terrain with a flat terrain at height 0.
+# Z = np.zeros((N, N))
+
+# Vertical offset applied to every generated tree base (meters).
+# Use 0.0 for exact terrain-surface placement.
 TREE_BASE_OFFSET = 0.0
 
 
@@ -178,4 +181,7 @@ update_forest_world_tree_heights()
 
 # Keep the mesh generation output quiet, but leave the terrain-aware tree logic in
 # the file so the world SDF can be generated from the mapping function directly.
+#
+# Important: tree XY layout in forest.sdf.in is deterministic and static. Running
+# this script updates tree Z values from terrain; it does not randomize per run.
 

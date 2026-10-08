@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import sys
 import struct
+import math
 from dataclasses import dataclass
 
 import rclpy
 from fleet_interfaces.srv import GetKeepoutZone, SetKeepoutZone
 from geometry_msgs.msg import Point32, PolygonStamped
+from nav2_msgs.srv import ClearEntireCostmap
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from sensor_msgs.msg import NavSatFix, PointCloud2, PointField
+from visualization_msgs.msg import Marker
 
 from fleet_common import signals
 from fleet_common.geodesy import llh_to_enu
@@ -63,6 +66,13 @@ class KeepoutServer(Node):
             "PointCloud2 topic used by Nav2 costmaps for keepout obstacles",
             constraints="a ROS topic name",
         )
+        self._marker_topic = declare(
+            self,
+            "marker_topic",
+            Parameter.Type.STRING,
+            "Marker topic used for keepout visualization in Foxglove",
+            constraints="a ROS topic name",
+        )
         self._publish_period_s = declare(
             self,
             "publish_period_s",
@@ -71,6 +81,22 @@ class KeepoutServer(Node):
             0.1,
             5.0,
         )
+        self._marker_height_m = declare(
+            self,
+            "marker_height_m",
+            Parameter.Type.DOUBLE,
+            "Height of keepout volume marker in meters",
+            0.1,
+            50.0,
+        )
+        self._marker_alpha = declare(
+            self,
+            "marker_alpha",
+            Parameter.Type.DOUBLE,
+            "Opacity of keepout volume marker in [0, 1]",
+            0.05,
+            1.0,
+        )
         self._datum: NavSatFix | None = None
         self._zones: dict[str, KeepoutZone] = {}
         self._active_label: str | None = None
@@ -78,6 +104,13 @@ class KeepoutServer(Node):
 
         self._zone_pub = self.create_publisher(PolygonStamped, self._zone_topic, latched_qos())
         self._obstacle_pub = self.create_publisher(PointCloud2, self._obstacle_topic, latched_qos())
+        self._marker_pub = self.create_publisher(Marker, self._marker_topic, latched_qos())
+        self._clear_local_costmap = self.create_client(
+            ClearEntireCostmap, "local_costmap/clear_entirely_local_costmap"
+        )
+        self._clear_global_costmap = self.create_client(
+            ClearEntireCostmap, "global_costmap/clear_entirely_global_costmap"
+        )
         self.create_subscription(NavSatFix, self._datum_topic, self._on_datum, latched_qos())
         self.create_service(SetKeepoutZone, "set_keepout_zone", self._on_set_keepout_zone)
         self.create_service(GetKeepoutZone, "get_keepout_zone", self._on_get_keepout_zone)
@@ -101,6 +134,8 @@ class KeepoutServer(Node):
                     self._active_points = []
                     self._zone_pub.publish(PolygonStamped(header=self._header()))
                     self._obstacle_pub.publish(self._pointcloud([]))
+                    self._marker_pub.publish(self._marker(action=Marker.DELETE))
+                    self._request_costmap_clear()
                 response.accepted = True
                 response.reason = f"zone '{request.label}' deleted"
                 self.get_logger().info(response.reason)
@@ -149,6 +184,7 @@ class KeepoutServer(Node):
             msg.polygon.points = [Point32(x=x, y=y, z=0.0) for x, y in polygon]
             self._zone_pub.publish(msg)
             self._obstacle_pub.publish(self._pointcloud(points))
+            self._marker_pub.publish(self._marker(zone=self._zones[request.label], label=request.label))
 
             response.accepted = True
             action = "updated" if existed else "created"
@@ -181,6 +217,15 @@ class KeepoutServer(Node):
         return response
 
     def _republish_active_zone(self) -> None:
+        active_zone = self._zones.get(self._active_label or "")
+        if active_zone is not None:
+            msg = PolygonStamped()
+            msg.header = self._header()
+            msg.polygon.points = [Point32(x=x, y=y, z=0.0) for x, y in active_zone.polygon]
+            self._zone_pub.publish(msg)
+            self._marker_pub.publish(self._marker(zone=active_zone, label=active_zone.label))
+        else:
+            self._marker_pub.publish(self._marker(action=Marker.DELETE))
         self._obstacle_pub.publish(self._pointcloud(self._active_points))
 
     def _pointcloud(self, points: list[tuple[float, float, float]]) -> PointCloud2:
@@ -205,6 +250,49 @@ class KeepoutServer(Node):
         header.stamp = self.get_clock().now().to_msg()
         header.frame_id = self._global_frame
         return header
+
+    def _request_costmap_clear(self) -> None:
+        request = ClearEntireCostmap.Request()
+        if self._clear_local_costmap.service_is_ready():
+            self._clear_local_costmap.call_async(request)
+        if self._clear_global_costmap.service_is_ready():
+            self._clear_global_costmap.call_async(request)
+
+    def _marker(
+        self,
+        zone: KeepoutZone | None = None,
+        label: str = "",
+        action: int = Marker.ADD,
+    ) -> Marker:
+        marker = Marker()
+        marker.header = self._header()
+        marker.ns = "keepout_zone"
+        marker.id = 0
+        marker.action = action
+        marker.type = Marker.CUBE
+        marker.lifetime.sec = 0
+
+        if action != Marker.ADD or zone is None:
+            return marker
+
+        center_x = sum(x for x, _ in zone.polygon) / len(zone.polygon)
+        center_y = sum(y for _, y in zone.polygon) / len(zone.polygon)
+        yaw_rad = math.radians(zone.yaw_deg)
+
+        marker.scale.x = zone.x_length
+        marker.scale.y = zone.y_length
+        marker.scale.z = self._marker_height_m
+        marker.pose.position.x = center_x
+        marker.pose.position.y = center_y
+        marker.pose.position.z = self._marker_height_m * 0.5
+        marker.pose.orientation.z = math.sin(yaw_rad * 0.5)
+        marker.pose.orientation.w = math.cos(yaw_rad * 0.5)
+        marker.color.r = 1.0
+        marker.color.g = 0.2
+        marker.color.b = 0.2
+        marker.color.a = self._marker_alpha
+        marker.text = label
+        return marker
 
 
 def main() -> None:

@@ -43,6 +43,7 @@
     - ^/<robot_namespace>/navsat$
     - ^/<robot_namespace>/obstacle_points$
     - ^/<robot_namespace>/keepout_obstacle_points$
+    - ^/<robot_namespace>/keepout_zone_marker$
     - ^/<robot_namespace>/odom$
     - ^/<robot_namespace>/odom_gt$
     - ^/<robot_namespace>/polygon_stop$
@@ -74,6 +75,7 @@
     - ^/<robot_namespace>/navsat$
     - ^/<robot_namespace>/obstacle_points$
     - ^/<robot_namespace>/keepout_obstacle_points$
+    - ^/<robot_namespace>/keepout_zone_marker$
     - ^/<robot_namespace>/raw_points$
     - ^/<robot_namespace>/front_depth/image$
     - ^/<robot_namespace>/front_depth/points$
