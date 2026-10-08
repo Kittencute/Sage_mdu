@@ -181,8 +181,6 @@ class KeepoutServer(Node):
         return response
 
     def _republish_active_zone(self) -> None:
-        if not self._active_points:
-            return
         self._obstacle_pub.publish(self._pointcloud(self._active_points))
 
     def _pointcloud(self, points: list[tuple[float, float, float]]) -> PointCloud2:

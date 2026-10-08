@@ -85,7 +85,7 @@
         - PathFollowCritic
         - PathAngleCritic
         - PreferForwardCritic
-        enforce_path_inversion: true
+        enforce_path_inversion: false
         inversion_xy_tolerance: 0.3
         inversion_yaw_tolerance: 0.5
         iteration_count: 2
@@ -94,11 +94,11 @@
         plugin: nav2_rotation_shim_controller::RotationShimController
         primary_controller: nav2_mppi_controller::MPPIController
         prune_distance: 10.0
-        rotate_to_heading_angular_vel: 1.2
+        rotate_to_heading_angular_vel: 0.7
         vx_max: 1.0
-        vx_min: -0.35
+        vx_min: 0.0
         vy_std: 0.0
-        wz_max: 1.68
+        wz_max: 1.0
       controller_frequency: 10.0
       enable_stamped_cmd_vel: true
       failure_tolerance: 0.3
@@ -218,7 +218,7 @@
         plugin: nav2_smac_planner::SmacPlannerLattice
         rotation_penalty: 2.0
         tolerance: 0.5
-      expected_planner_frequency: 5.0
+      expected_planner_frequency: 1.0
   velocity_smoother:
     ros__parameters:
       enable_stamped_cmd_vel: true
@@ -235,7 +235,7 @@
       - 0.0
       - 1.68
       min_velocity:
-      - -0.35
+      - 0.0
       - 0.0
       - -1.68
   lifecycle_manager_navigation:
