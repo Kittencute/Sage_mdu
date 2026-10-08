@@ -439,3 +439,50 @@ Result:
 Result:
 
 - Foxglove can render a dedicated colored keepout overlay layer directly from marker messages
+
+---
+
+## 9. Mission CLI Changes (Code-Wise)
+
+This section is only about mission command-line behavior and related code updates.
+
+### Scope note
+
+- `mission_server.py` was not changed for this feature set.
+- Behavior changed in mission sending client code (`send_mission.py`), tests, and docs.
+
+### Files changed
+
+- `src/fleet_common/fleet_common/send_mission.py`
+- `src/fleet_common/test/test_mission_json.py`
+- `README.md`
+
+### What changed in `send_mission.py`
+
+- Routing mode support:
+  - `--ordered` keeps waypoint order as typed.
+  - `--unordered` reorders with nearest-next logic from selected home target.
+- Home target argument model:
+  - `--home lat,lon`: explicit return coordinate after waypoint execution.
+  - `--origin`: use dynamic spawn/datum coordinate from `fixposition/datum`.
+  - `--setorigin lat,lon`: set explicit origin/home target using alternate naming.
+- Mission dispatch behavior:
+  - Normal path: `TAKEOFF -> WAYPOINT(s) -> HOME -> LAND`.
+  - `--origin` with no waypoints: sends home-only mission.
+  - `--setorigin lat,lon` with no waypoints: no mission dispatched (no movement).
+
+### What changed in tests
+
+`src/fleet_common/test/test_mission_json.py` now covers:
+
+- ordered vs unordered waypoint behavior
+- home-only plan generation behavior
+- explicit home/origin coordinate parsing
+
+### What changed in docs
+
+`README.md` mission examples and behavior notes were updated so operators can see:
+
+- which argument sets explicit home (`--home`)
+- which argument uses spawn/datum (`--origin`)
+- how `--setorigin` behaves with and without waypoints

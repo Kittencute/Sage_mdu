@@ -52,7 +52,6 @@ In [Foxglove](https://foxglove.dev), choose Open connection, then Foxglove WebSo
 make shell SERVICE=unit-terrascout1
 ```
 
-
 The commands below run in this shell.
 
 ### Keepout CRUD
@@ -73,12 +72,33 @@ For a colored semi-opaque keepout zone volume in Foxglove, add a 3D panel layer 
 ### Send a mission
 
 ```sh
+# AeroScout: Send a mission with an altitude of 10 meters
 ros2 run fleet_common send_mission.py --namespace aeroscout1 --altitude 10 47.39785,8.54566
+
+# TerraScout: Send a simple mission with one waypoint
 ros2 run fleet_common send_mission.py --namespace terrascout1 --home 47.397742,8.545594 47.39781,8.545594
-ros2 run fleet_common send_mission.py --namespace terrascout1 --home 47.397742,8.545594 47.39802,8.54600
+
+# TerraScout - Ordered (default): follows waypoint order exactly (5 waypoints)
+ros2 run fleet_common send_mission.py --namespace terrascout1 --ordered --home 47.397742,8.545594 47.39778,8.54562 47.39786,8.54578 47.39795,8.54592 47.39803,8.54576 47.39790,8.54558
+
+# TerraScout - Unordered: auto-reorder by nearest-next from home target (same 5 waypoints)
+ros2 run fleet_common send_mission.py --namespace terrascout1 --unordered --home 47.397742,8.545594 47.39778,8.54562 47.39786,8.54578 47.39795,8.54592 47.39803,8.54576 47.39790,8.54558
+
+# TerraScout - Home (go to dynamic spawn/datum home)
+ros2 run fleet_common send_mission.py --namespace terrascout1 --origin
+
+# TerraScout - Set origin/home target explicitly
+ros2 run fleet_common send_mission.py --namespace terrascout1 --setorigin 47.397742,8.545594 
 ```
 
-The drone's home defaults to its current position.
+Mission command behavior:
+
+- Default list is: TAKEOFF -> WAYPOINT(s) -> HOME -> LAND
+- `--home lat,lon` means: after waypoints, go back to this coordinate
+- `--origin` means: go to the original spawn/datum home position
+- `--setorigin lat,lon` means: set a new coordinate to use as that origin/home target
+- `--ordered` keeps your waypoint sequence (default)
+- `--unordered` reorders waypoints to a nearest-next route from selected home target
 
 ### Take over and hand back
 
