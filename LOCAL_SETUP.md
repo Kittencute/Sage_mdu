@@ -245,6 +245,7 @@ src/terrascout_mission/config/simulation/foxglove_bridge.yaml
 src/terrascout_mission/config/physical/foxglove_bridge.yaml
 
 src/terrascout_navigation/config/nav2.yaml
+src/terrascout_navigation/config/navigate_to_pose.xml
 ```
 
 ### fleet_common
@@ -321,7 +322,7 @@ Runtime keepout server node. Responsibilities:
 Startup contract:
 
 - starts empty (no active keepout zone)
-- only publishes non-empty keepout data after a set/update request
+- publishes an empty keepout cloud by default, and non-empty keepout data after a set/update request
 
 #### `src/terrascout_mission/terrascout_mission/keepout_geometry.py`
 
@@ -378,3 +379,42 @@ This selects which runtime graph is rendered and therefore whether keepout-enabl
 Controls Gazebo↔ROS topic bridging for simulation sensors and robot interfaces.
 
 Not keepout-specific, but incorrect bridge setup can block dependent runtime behavior and make system-level keepout verification misleading.
+
+---
+
+## 8. Recent Keepout and Navigation Tuning Changes
+
+This section summarizes recent behavior changes made after the initial keepout integration.
+
+### `src/terrascout_mission/terrascout_mission/keepout_server.py`
+
+- removed the guard that skipped publish when no active keepout points exist
+- keepout obstacle `PointCloud2` is now republished even when empty
+
+Result:
+
+- Nav2 keepout observation buffers stay fresh and do not timeout when no keepout zone is active
+
+### `src/terrascout_navigation/config/nav2.yaml`
+
+- `enforce_path_inversion: true -> false`
+- `vx_min: -0.35 -> 0.0` (disable reverse tracking bias)
+- `rotate_to_heading_angular_vel: 1.2 -> 0.7`
+- `wz_max: 1.68 -> 1.0`
+- `velocity_smoother.min_velocity[0]: -0.35 -> 0.0`
+- `planner_server.expected_planner_frequency: 5.0 -> 1.0`
+
+Result:
+
+- less aggressive turn/reverse behavior and reduced replanning pressure
+
+### `src/terrascout_navigation/config/navigate_to_pose.xml`
+
+- replaced `PipelineSequence` with `Sequence`
+- removed periodic `RateController` + `IsPathValid` replanning loop
+- changed behavior from continuous validity polling to "compute path once, then follow"
+- replanning now occurs mainly via recovery/failure path
+
+Result:
+
+- fewer path handoffs and reduced circling from replan churn
