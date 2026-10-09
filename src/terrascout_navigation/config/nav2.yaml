@@ -40,7 +40,7 @@
       observation_sources:
       - pointcloud
       pointcloud:
-        max_height: 2.0
+        max_height: 0.5
         min_height: -0.2
         source_timeout: 0.5
         topic: obstacle_points
@@ -90,7 +90,7 @@
         inversion_yaw_tolerance: 0.5
         iteration_count: 2
         max_angular_accel: 2.5
-        model_dt: 0.1
+        model_dt: 0.05
         plugin: nav2_rotation_shim_controller::RotationShimController
         primary_controller: nav2_mppi_controller::MPPIController
         prune_distance: 10.0
@@ -99,21 +99,26 @@
         vx_min: 0.0
         vy_std: 0.0
         wz_max: 1.0
-      controller_frequency: 10.0
+      controller_frequency: 20.0
       enable_stamped_cmd_vel: true
       failure_tolerance: 0.3
       general_goal_checker:
         plugin: nav2_controller::SimpleGoalChecker
-        xy_goal_tolerance: 0.5
-        yaw_goal_tolerance: 0.5
+        xy_goal_tolerance: 0.7
+        yaw_goal_tolerance: 0.7
       goal_checker_plugins:
       - general_goal_checker
       min_theta_velocity_threshold: 0.001
       min_x_velocity_threshold: 0.001
       min_y_velocity_threshold: 0.5
+      progress_checker_plugins:
+      - progress_checker
+
       progress_checker:
-        movement_time_allowance: 20.0
-        required_movement_radius: 0.1
+        plugin: nav2_controller::SimpleProgressChecker
+        movement_time_allowance: 5.0
+        required_movement_radius: 1.0
+        required_movement_angle: 0.2
   global_costmap:
     global_costmap:
       ros__parameters:
@@ -121,31 +126,37 @@
         footprint: '[[0.465, 0.35], [0.465, -0.35], [-0.465, -0.35], [-0.465, 0.35]]'
         footprint_padding: 0.01
         height: 100
+
         inflation_layer:
           cost_scaling_factor: 2.75
           inflation_radius: 0.75
           plugin: nav2_costmap_2d::InflationLayer
+
         initial_transform_timeout: 30.0
+
         obstacle_layer:
-          max_obstacle_height: 2.5
+          max_obstacle_height: 0.5
           min_obstacle_height: -0.3
           observation_sources: obstacle_mark obstacle_clear keepout_mark
+
           obstacle_clear:
             clearing: true
             data_type: PointCloud2
             expected_update_rate: 0.5
             marking: false
-            max_obstacle_height: 2.5
+            max_obstacle_height: 0.5
             min_obstacle_height: -0.3
             raytrace_max_range: 25.0
             topic: /<robot_namespace>/raw_points
+
           obstacle_mark:
             data_type: PointCloud2
             expected_update_rate: 0.5
-            max_obstacle_height: 2.5
+            max_obstacle_height: 0.5
             min_obstacle_height: -0.3
             obstacle_max_range: 20.0
             topic: /<robot_namespace>/obstacle_points
+
           keepout_mark:
             data_type: PointCloud2
             expected_update_rate: 2.0
@@ -153,10 +164,13 @@
             min_obstacle_height: -0.3
             obstacle_max_range: 1000.0
             topic: /<robot_namespace>/keepout_obstacle_points
+
           plugin: nav2_costmap_2d::ObstacleLayer
+
         plugins:
         - obstacle_layer
         - inflation_layer
+
         publish_frequency: 5.0
         resolution: 0.1
         rolling_window: true
@@ -169,31 +183,37 @@
         footprint_padding: 0.01
         global_frame: odom
         height: 20
+
         inflation_layer:
           cost_scaling_factor: 3.0
           inflation_radius: 0.75
           plugin: nav2_costmap_2d::InflationLayer
+
         initial_transform_timeout: 30.0
+
         obstacle_layer:
-          max_obstacle_height: 2.5
+          max_obstacle_height: 0.5
           min_obstacle_height: -0.3
           observation_sources: obstacle_mark obstacle_clear keepout_mark
+
           obstacle_clear:
             clearing: true
             data_type: PointCloud2
             expected_update_rate: 0.5
             marking: false
-            max_obstacle_height: 2.5
+            max_obstacle_height: 0.5
             min_obstacle_height: -0.3
             raytrace_max_range: 15.0
             topic: /<robot_namespace>/raw_points
+
           obstacle_mark:
             data_type: PointCloud2
             expected_update_rate: 0.5
-            max_obstacle_height: 2.5
+            max_obstacle_height: 0.5
             min_obstacle_height: -0.3
             obstacle_max_range: 12.0
             topic: /<robot_namespace>/obstacle_points
+
           keepout_mark:
             data_type: PointCloud2
             expected_update_rate: 2.0
@@ -201,10 +221,13 @@
             min_obstacle_height: -0.3
             obstacle_max_range: 200.0
             topic: /<robot_namespace>/keepout_obstacle_points
+
           plugin: nav2_costmap_2d::ObstacleLayer
+
         plugins:
         - obstacle_layer
         - inflation_layer
+
         publish_frequency: 1.5
         resolution: 0.05
         rolling_window: true

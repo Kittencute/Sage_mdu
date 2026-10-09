@@ -79,10 +79,10 @@ ros2 run fleet_common send_mission.py --namespace aeroscout1 --altitude 10 47.39
 ros2 run fleet_common send_mission.py --namespace terrascout1 --home 47.397742,8.545594 47.39781,8.545594
 
 # TerraScout - Ordered (default): follows waypoint order exactly (5 waypoints)
-ros2 run fleet_common send_mission.py --namespace terrascout1 --ordered --home 47.397742,8.545594 47.39778,8.54562 47.39786,8.54578 47.39795,8.54592 47.39803,8.54576 47.39790,8.54558
+ros2 run fleet_common send_mission.py --namespace terrascout1 --ordered --home 47.397742,8.545594 47.39779,8.54564 47.39788,8.54581 47.39760,8.54595 47.39754,8.54545 47.39793,8.54542
 
 # TerraScout - Unordered: auto-reorder by nearest-next from home target (same 5 waypoints)
-ros2 run fleet_common send_mission.py --namespace terrascout1 --unordered --home 47.397742,8.545594 47.39778,8.54562 47.39786,8.54578 47.39795,8.54592 47.39803,8.54576 47.39790,8.54558
+ros2 run fleet_common send_mission.py --namespace terrascout1 --unordered --home 47.397742,8.545594 47.39779,8.54564 47.39788,8.54581 47.39760,8.54595 47.39754,8.54545 47.39793,8.54542
 
 # TerraScout - Home (go to dynamic spawn/datum home)
 ros2 run fleet_common send_mission.py --namespace terrascout1 --origin

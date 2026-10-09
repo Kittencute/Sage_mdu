@@ -6,8 +6,8 @@ from scipy.ndimage import gaussian_filter
 
 # Settings
 N = 513
-SIZE_X = 60.0
-SIZE_Y = 60.0
+SIZE_X = 90.0
+SIZE_Y = 90.0
 HEIGHT = 5
 SEED = 42
 
@@ -25,7 +25,7 @@ Z -= Z.min()
 Z /= Z.max()
 
 # Override the previously generated terrain with a flat terrain at height 0.
-Z = np.zeros((N, N))
+# Z = np.zeros((N, N))
 
 # Vertical offset applied to every generated tree base (meters).
 # Use 0.0 for exact terrain-surface placement.
