@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
-
-
 from __future__ import annotations
-
 import itertools
+import json
 import math
 import sys
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from functools import partial
-
 import rclpy
 from action_msgs.msg import GoalStatus
 from action_msgs.srv import CancelGoal
@@ -30,14 +27,14 @@ from rclpy.qos import qos_profile_sensor_data
 from rclpy.task import Future
 from rclpy.time import Time
 from sensor_msgs.msg import NavSatFix, NavSatStatus
-from std_msgs.msg import Bool
-
+from std_msgs.msg import Bool, String
+from std_srvs.srv import Trigger
 from fleet_common import signals
 from fleet_common.geodesy import llh_to_enu
 from fleet_common.params import declare
 from fleet_common.qos import latched_qos
 from fleet_common.waypoint_geojson import build_waypoints_geojson
-
+from terrascout_mission.foxglove_mission_input import FoxgloveMissionInput
 POSITION_KINDS = frozenset({MissionCommand.WAYPOINT, MissionCommand.HOME})
 INSTANT_KINDS = frozenset({MissionCommand.TAKEOFF, MissionCommand.LAND})
 NAVIGATION_NODES_PARAMETER = "node_names"
@@ -55,8 +52,6 @@ STOP_OVERDUE = (
     f"stop navigation failed: cause: navigate_to_pose did not end the goal "
     f"within {STOP_TIMEOUT_S} s"
 )
-
-
 class Phase(Enum):
     NAVIGATING = auto()
     HOLDING = auto()
@@ -64,20 +59,14 @@ class Phase(Enum):
     PAUSED = auto()
     ABORTING = auto()
     RETURNING = auto()
-
-
 class MissionError(Exception):
     pass
-
-
 @dataclass
 class _Navigation:
     send: Future
     answer_by: Time
     result: Future | None = None
     cancel: Future | None = None
-
-
 @dataclass
 class _Mission:
     plan: MissionPlan
@@ -87,6 +76,7 @@ class _Mission:
     point_of: dict[int, int]
     status: list[int]
     waypoints: list[dict[str, float]]
+    start_position: dict[str, float]
     result: Future = field(default_factory=Future)
     phase: Phase = Phase.NAVIGATING
     index: int = 0
@@ -95,8 +85,6 @@ class _Mission:
     deadline: Time | None = None
     overdue: str = ""
     abort_reason: str = ""
-
-
 def goal_yaws(points: list[tuple[float, float]]) -> list[float]:
     yaws = []
     for index, point in enumerate(points):
@@ -109,12 +97,8 @@ def goal_yaws(points: list[tuple[float, float]]) -> list[float]:
         else:
             yaws.append(FACING_EAST)
     return yaws
-
-
 def _bearing(start: tuple[float, float], end: tuple[float, float]) -> float:
     return math.atan2(end[1] - start[1], end[0] - start[0])
-
-
 class GroundMissionServer(Node):
     def __init__(self) -> None:
         super().__init__("mission_server")
@@ -155,10 +139,19 @@ class GroundMissionServer(Node):
             1000.0,
             "at most half the navigation global costmap window minus the goal margin",
         )
+        self._saved_home = declare(
+            self,
+            "saved_home",
+            Parameter.Type.STRING,
+            "Saved GPS Home position as latitude,longitude; empty when not configured",
+        )
+        self._last_mission_start: tuple[float, float] | None = None
+        self._clear_pending = False
         self._mission: _Mission | None = None
         self._results: dict[bytes, Future] = {}
         self._datum: NavSatFix | None = None
         self._position: NavSatFix | None = None
+        self._spawn_position: tuple[float, float] | None = None
         self._taken_over = False
         self._navigation_states: dict[str, int | None] = {}
         self._node_list: Future | None = None
@@ -168,7 +161,7 @@ class GroundMissionServer(Node):
         self._last_state = MissionState(mission_id=-1, current_command_id=-1)
         self._state_pub = self.create_publisher(MissionState, "mission_state", latched_qos())
         self._geojson_pub = self.create_publisher(GeoJSON, "waypoints_geo", latched_qos())
-        self._parameters = self.create_client(
+        self._navigation_parameters_client = self.create_client(
             GetParameters, f"{self._navigation_manager}/get_parameters"
         )
         self._nav = ActionClient(self, NavigateToPose, "navigate_to_pose")
@@ -182,6 +175,11 @@ class GroundMissionServer(Node):
             cancel_callback=self._on_cancel,
         )
         self.create_service(ControlMission, "control_mission", self._on_control)
+        self.create_service(Trigger, "clear_mission", self._on_clear_mission)
+        self.create_service(Trigger, "get_current_point", self._on_get_current_point)
+        self.create_subscription(String, "add_mission_waypoint", self._on_add_waypoint, 10)
+        self.create_service(Trigger, "get_home_point", self._on_get_home_point)
+        self._foxglove_mission_input = FoxgloveMissionInput(self)
         self.create_subscription(Bool, "teleop_takeover", self._on_takeover, latched_qos())
         self.create_subscription(NavSatFix, self._datum_topic, self._on_datum, latched_qos())
         self.create_subscription(
@@ -189,7 +187,6 @@ class GroundMissionServer(Node):
         )
         self.create_timer(TICK_PERIOD_S, self._tick)
         self._update_readiness()
-
     def _track_navigation(self) -> None:
         if not self._navigation_states:
             self._request_node_list()
@@ -204,11 +201,10 @@ class GroundMissionServer(Node):
             del self._state_requests[name]
             if self._navigation_states[name] is None:
                 self._navigation_states[name] = request.result().current_state.id
-
     def _request_node_list(self) -> None:
         if self._node_list is None:
-            if self._parameters.service_is_ready():
-                self._node_list = self._parameters.call_async(
+            if self._navigation_parameters_client.service_is_ready():
+                self._node_list = self._navigation_parameters_client.call_async(
                     GetParameters.Request(names=[NAVIGATION_NODES_PARAMETER])
                 )
             return
@@ -232,17 +228,22 @@ class GroundMissionServer(Node):
                 self.create_client(GetState, f"{name}/get_state"),
                 None,
             )
-
     def _on_transition(self, name: str, msg: TransitionEvent) -> None:
         self._navigation_states[name] = msg.goal_state.id
-
     def _on_datum(self, msg: NavSatFix) -> None:
         if self._datum is None:
             self._datum = msg
-
     def _on_position(self, msg: NavSatFix) -> None:
         self._position = msg
-
+        if (
+            self._spawn_position is None
+            and msg.status.status >= NavSatStatus.STATUS_FIX
+            and math.isfinite(msg.latitude)
+            and math.isfinite(msg.longitude)
+            and -90.0 <= msg.latitude <= 90.0
+            and -180.0 <= msg.longitude <= 180.0
+        ):
+            self._spawn_position = (msg.latitude, msg.longitude)
     def _update_readiness(self) -> None:
         reasons = []
         if not self._navigation_states:
@@ -270,7 +271,6 @@ class GroundMissionServer(Node):
             "ready for missions" if ready else f"not ready for missions: {reason}"
         )
         self._publish(self._last_state)
-
     def _on_goal(self, request) -> GoalResponse:
         plan = request.plan
         cause = self._rejection(plan)
@@ -278,7 +278,6 @@ class GroundMissionServer(Node):
             self.get_logger().error(f"accept mission {plan.id} failed: cause: {cause}")
             return GoalResponse.REJECT
         return GoalResponse.ACCEPT
-
     def _rejection(self, plan: MissionPlan) -> str:
         if not self._ready:
             return f"not ready: {self._not_ready_reason}"
@@ -292,7 +291,6 @@ class GroundMissionServer(Node):
         if self._position.status.status < NavSatStatus.STATUS_FIX:
             return f"robot position status {self._position.status.status} is not a fix"
         return self._leg_rejection(plan)
-
     def _leg_rejection(self, plan: MissionPlan) -> str:
         positions, points = self._plan_points(plan)
         route = [self._map_point(self._position.latitude, self._position.longitude), *points[1:]]
@@ -311,7 +309,6 @@ class GroundMissionServer(Node):
                     f"{name} is {distance:.1f} m from home, farther than {self._max_leg_length_m} m"
                 )
         return ""
-
     def _plan_points(self, plan: MissionPlan) -> tuple[list[int], list[tuple[float, float]]]:
         positions = [
             index for index, command in enumerate(plan.commands) if command.kind in POSITION_KINDS
@@ -321,7 +318,6 @@ class GroundMissionServer(Node):
             for index in positions
         ]
         return positions, [self._map_point(target.latitude, target.longitude) for target in targets]
-
     def _on_accepted(self, goal_handle) -> None:
         plan = goal_handle.request.plan
         positions, points = self._plan_points(plan)
@@ -332,37 +328,136 @@ class GroundMissionServer(Node):
             yaws=goal_yaws(points),
             point_of={index: point for point, index in enumerate(positions, start=1)},
             status=[MissionState.COMMAND_WAITING] * len(plan.commands),
+            start_position={"lat": self._position.latitude, "lon": self._position.longitude},
             waypoints=[
                 {"lat": command.latitude, "lon": command.longitude}
                 for command in plan.commands
                 if command.kind == MissionCommand.WAYPOINT
             ],
         )
+        self._last_mission_start = (self._position.latitude, self._position.longitude)
         self._mission = mission
         self._results[bytes(goal_handle.goal_id.uuid)] = mission.result
         goal_handle.execute()
         self.get_logger().info(f"mission {plan.id} started with {len(plan.commands)} commands")
         self._publish_geojson(mission, 0)
         self._start_command(mission)
-
     async def _execute(self, goal_handle) -> ExecuteMission.Result:
         return await self._results.pop(bytes(goal_handle.goal_id.uuid))
-
     def _on_cancel(self, goal_handle) -> CancelResponse:
         mission = self._mission
         if mission is None or mission.goal != goal_handle:
             return CancelResponse.REJECT
         return CancelResponse.ACCEPT
-
     def _on_takeover(self, msg: Bool) -> None:
         self._taken_over = msg.data
         if msg.data and self._mission is not None:
             self._abort(self._mission, OPERATOR_TOOK_OVER)
+    def _on_add_waypoint(self, msg: String) -> None:
+        mission = self._mission
+        if mission is None or mission.phase not in (Phase.NAVIGATING, Phase.HOLDING, Phase.PAUSED):
+            self.get_logger().warning("add waypoint rejected: no editable active mission")
+            return
+        try:
+            data = json.loads(msg.data)
+            lat, lon, alt = float(data["lat"]), float(data["lon"]), float(data["alt"])
+            mode = data["mode"]
+            if mode not in ("ordered", "unordered") or not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                raise ValueError("invalid coordinates or mode")
+            commands = list(mission.plan.commands)
+            # Preserve the active target, reorder only future waypoint commands.
+            future_indices = [i for i in range(mission.index + 1, len(commands))
+                              if commands[i].kind == MissionCommand.WAYPOINT]
+            new = MissionCommand()
+            new.id = max(c.id for c in commands) + 1
+            new.kind = MissionCommand.WAYPOINT
+            new.latitude, new.longitude, new.altitude_agl = lat, lon, alt
+            new.yaw_deg = float("nan")
+            if mode == "unordered" and future_indices:
+                candidates = [commands[i] for i in future_indices] + [new]
+                active = commands[mission.index]
+                if active.kind == MissionCommand.WAYPOINT:
+                    current = (active.latitude, active.longitude)
+                else:
+                    current = (self._position.latitude, self._position.longitude)
+                ordered = []
+                while candidates:
+                    best = min(candidates, key=lambda c: math.dist(self._map_point(*current),
+                                                                   self._map_point(c.latitude, c.longitude)))
+                    ordered.append(best)
+                    candidates.remove(best)
+                    current = (best.latitude, best.longitude)
+                for i, cmd in zip(future_indices, ordered[:-1]):
+                    commands[i] = cmd
+                insertion = next((i for i in range(mission.index + 1, len(commands))
+                                  if commands[i].kind == MissionCommand.HOME), len(commands))
+                commands.insert(insertion, ordered[-1])
+            else:
+                insertion = next((i for i in range(mission.index + 1, len(commands))
+                                  if commands[i].kind == MissionCommand.HOME), len(commands))
+                commands.insert(insertion, new)
+            # Validate the complete revised route before modifying the active mission.
+            candidate = MissionPlan()
+            candidate.id = mission.plan.id
+            candidate.home = mission.plan.home
+            candidate.commands = commands
+            rejection = self._leg_rejection(candidate)
+            if rejection:
+                raise ValueError(rejection)
+            mission.plan.commands = commands
+            mission.status = mission.status[:insertion] + [MissionState.COMMAND_WAITING] + mission.status[insertion:]
+            positions, mission.points = self._plan_points(mission.plan)
+            mission.yaws = goal_yaws(mission.points)
+            mission.point_of = {index: point for point, index in enumerate(positions, start=1)}
+            mission.waypoints = [{"lat": c.latitude, "lon": c.longitude}
+                                 for c in commands if c.kind == MissionCommand.WAYPOINT]
+            self._publish_geojson(mission, self._waypoints_before(mission, mission.index))
+            self._publish_state(mission, MissionState.MISSION_RUNNING)
+            self.get_logger().info(f"added waypoint {lat},{lon} ({mode})")
+        except (ValueError, KeyError, TypeError) as exc:
+            self.get_logger().warning(f"add waypoint rejected: {exc}")
+
+    def _on_get_current_point(self, request, response):
+        point = (self._position.latitude, self._position.longitude) if self._position else None
+        response.success = point is not None
+        response.message = f"{point[0]:.9f},{point[1]:.9f}" if point else "no robot position available"
+        return response
+
+    def _on_get_home_point(self, request, response):
+        saved = self.get_parameter("saved_home").value
+        if saved:
+            response.success = True
+            response.message = saved
+        elif self._spawn_position is not None:
+            response.success = True
+            response.message = (
+                f"{self._spawn_position[0]:.9f},{self._spawn_position[1]:.9f}"
+            )
+        else:
+            response.success = False
+            response.message = "spawn GPS position is not available yet"
+        return response
+
+    def _clear_visualization(self):
+        msg = GeoJSON()
+        msg.geojson = '{"type":"FeatureCollection","features":[]}'
+        self._geojson_pub.publish(msg)
+
+    def _on_clear_mission(self, request, response):
+        if self._mission is not None:
+            self._clear_pending = True
+            self._abort(self._mission, "mission cleared by operator")
+            response.success = True
+            response.message = "mission cancellation requested; visualization will clear after stop"
+        else:
+            self._clear_visualization()
+            response.success = True
+            response.message = "mission visualization cleared"
+        return response
 
     def _on_control(self, request, response):
         response.accepted, response.reason = self._control(request.request)
         return response
-
     def _control(self, request: int) -> tuple[bool, str]:
         mission = self._mission
         if mission is None:
@@ -379,7 +474,6 @@ class GroundMissionServer(Node):
             self._start_command(mission)
             return True, ""
         return False, f"unknown request {request}"
-
     def _abort(self, mission: _Mission, reason: str) -> None:
         if mission.abort_reason in (reason, OPERATOR_TOOK_OVER):
             return
@@ -387,7 +481,6 @@ class GroundMissionServer(Node):
         mission.abort_reason = reason
         mission.phase = Phase.ABORTING
         self._set_deadline(mission, STOP_TIMEOUT_S, STOP_OVERDUE)
-
     def _tick(self) -> None:
         self._track_navigation()
         self._update_readiness()
@@ -406,7 +499,6 @@ class GroundMissionServer(Node):
                 str(error),
                 mission.goal.abort,
             )
-
     def _advance(self, mission: _Mission) -> None:
         if mission.deadline is not None and self._now() > mission.deadline:
             raise MissionError(mission.overdue)
@@ -423,7 +515,6 @@ class GroundMissionServer(Node):
                 self._end_abort(mission)
         elif mission.phase == Phase.RETURNING:
             self._return_home(mission)
-
     def _start_command(self, mission: _Mission) -> None:
         commands = mission.plan.commands
         while mission.index < len(commands) and commands[mission.index].kind in INSTANT_KINDS:
@@ -440,7 +531,6 @@ class GroundMissionServer(Node):
         mission.phase = Phase.NAVIGATING
         self._set_status(mission, mission.index, MissionState.COMMAND_RUNNING)
         self._publish_state(mission, MissionState.MISSION_RUNNING)
-
     def _navigate(self, mission: _Mission) -> None:
         if mission.navigation is None:
             mission.navigation = self._send_goal(mission, mission.point_of[mission.index])
@@ -460,26 +550,22 @@ class GroundMissionServer(Node):
             mission.hold_until = self._now() + Duration(seconds=command.hold_s)
             return
         self._complete_command(mission)
-
     def _complete_command(self, mission: _Mission) -> None:
         self._set_status(mission, mission.index, MissionState.COMMAND_FINISHED)
         mission.index += 1
         self._publish_geojson(mission, self._waypoints_before(mission, mission.index))
         self._start_command(mission)
-
     def _pause(self, mission: _Mission) -> None:
         mission.deadline = None
         mission.phase = Phase.PAUSED
         self._set_status(mission, mission.index, MissionState.COMMAND_PAUSED)
         self._publish_state(mission, MissionState.MISSION_PAUSED)
-
     def _end_abort(self, mission: _Mission) -> None:
-        if mission.abort_reason == OPERATOR_TOOK_OVER:
+        if mission.abort_reason in (OPERATOR_TOOK_OVER, "mission cleared by operator"):
             self._finish_aborted(mission)
             return
         mission.deadline = None
         mission.phase = Phase.RETURNING
-
     def _return_home(self, mission: _Mission) -> None:
         if mission.navigation is None:
             self.get_logger().info("navigating home after abort")
@@ -488,7 +574,6 @@ class GroundMissionServer(Node):
         if self._accepted_handle(mission.navigation) is not None:
             mission.navigation = None
             self._finish_aborted(mission)
-
     def _finish_aborted(self, mission: _Mission) -> None:
         cancelled = mission.goal.is_cancel_requested and mission.abort_reason != OPERATOR_TOOK_OVER
         self._finish(
@@ -498,7 +583,6 @@ class GroundMissionServer(Node):
             mission.abort_reason,
             mission.goal.canceled if cancelled else mission.goal.abort,
         )
-
     def _finish(
         self,
         mission: _Mission,
@@ -521,6 +605,9 @@ class GroundMissionServer(Node):
         result.reason = reason
         mission.result.set_result(result)
         self._mission = None
+        if self._clear_pending:
+            self._clear_pending = False
+            self._clear_visualization()
         message = f"mission {mission.plan.id} ended with status {mission_status}: {reason}"
         if mission_status == MissionState.MISSION_FINISHED:
             self.get_logger().info(f"mission {mission.plan.id} finished")
@@ -528,7 +615,6 @@ class GroundMissionServer(Node):
             self.get_logger().warning(message)
         else:
             self.get_logger().error(message)
-
     def _send_goal(self, mission: _Mission, point: int) -> _Navigation:
         x, y = mission.points[point]
         yaw = mission.yaws[point]
@@ -544,7 +630,6 @@ class GroundMissionServer(Node):
             send=self._nav.send_goal_async(goal),
             answer_by=now + Duration(seconds=GOAL_RESPONSE_TIMEOUT_S),
         )
-
     def _accepted_handle(self, navigation: _Navigation):
         if not navigation.send.done():
             if self._now() > navigation.answer_by:
@@ -557,7 +642,6 @@ class GroundMissionServer(Node):
         if not handle.accepted:
             raise MissionError("send navigation goal failed: cause: navigate_to_pose rejected it")
         return handle
-
     def _navigation_status(self, navigation: _Navigation) -> int:
         handle = self._accepted_handle(navigation)
         if handle is None:
@@ -567,7 +651,6 @@ class GroundMissionServer(Node):
         if navigation.result.done():
             return navigation.result.result().status
         return handle.status
-
     def _navigation_stopped(self, mission: _Mission) -> bool:
         navigation = mission.navigation
         if navigation is None:
@@ -590,31 +673,25 @@ class GroundMissionServer(Node):
         if code != CancelGoal.Response.ERROR_NONE:
             raise MissionError(f"cancel navigation goal failed: cause: return code {code}")
         return False
-
     def _map_point(self, latitude: float, longitude: float) -> tuple[float, float]:
         datum = self._datum
         east, north, _ = llh_to_enu(
             latitude, longitude, 0.0, datum.latitude, datum.longitude, datum.altitude
         )
         return east, north
-
     def _now(self) -> Time:
         return self.get_clock().now()
-
     def _set_deadline(self, mission: _Mission, seconds: float, overdue: str) -> None:
         mission.deadline = self._now() + Duration(seconds=seconds)
         mission.overdue = overdue
-
     def _current(self, mission: _Mission) -> int:
         return min(mission.index, len(mission.plan.commands) - 1)
-
     def _waypoints_before(self, mission: _Mission, index: int) -> int:
         return sum(
             1
             for command in mission.plan.commands[:index]
             if command.kind == MissionCommand.WAYPOINT
         )
-
     def _set_status(self, mission: _Mission, index: int, status: int) -> None:
         if mission.status[index] == status:
             return
@@ -624,7 +701,6 @@ class GroundMissionServer(Node):
         feedback.command_id = mission.plan.commands[index].id
         feedback.status = status
         mission.goal.publish_feedback(feedback)
-
     def _publish_state(self, mission: _Mission, mission_status: int) -> None:
         msg = MissionState()
         msg.mission_id = mission.plan.id
@@ -633,22 +709,21 @@ class GroundMissionServer(Node):
         msg.command_status = list(mission.status)
         msg.mission_status = mission_status
         self._publish(msg)
-
     def _publish(self, msg: MissionState) -> None:
         msg.stamp = self._now().to_msg()
         msg.ready = self._ready
         msg.not_ready_reason = self._not_ready_reason
         self._last_state = msg
         self._state_pub.publish(msg)
-
     def _publish_geojson(self, mission: _Mission, current: int, failed: bool = False) -> None:
         if not mission.waypoints:
             return
         msg = GeoJSON()
-        msg.geojson = build_waypoints_geojson(mission.waypoints, current, failed=failed)
+        msg.geojson = build_waypoints_geojson(
+            mission.waypoints, current, failed=failed, start_position=mission.start_position,
+            return_position={"lat": mission.plan.home.latitude, "lon": mission.plan.home.longitude}, active=not failed,
+        )
         self._geojson_pub.publish(msg)
-
-
 def main() -> None:
     signals.init()
     node = GroundMissionServer()
@@ -659,7 +734,5 @@ def main() -> None:
     finally:
         node.destroy_node()
         rclpy.try_shutdown()
-
-
 if __name__ == "__main__":
     sys.exit(main())

@@ -16,11 +16,15 @@ OBJ = "src/fleet_simulation/terrain/forest_ground.obj"
 
 rng = np.random.default_rng(SEED)
 
-# Generate smooth hills
-large = gaussian_filter(rng.normal(size=(N, N)), sigma=40)
-medium = gaussian_filter(rng.normal(size=(N, N)), sigma=20)
+# Generate hills with different sizes
+large = gaussian_filter(rng.normal(size=(N, N)), sigma=80)
+medium = gaussian_filter(rng.normal(size=(N, N)), sigma=40)
+small = gaussian_filter(rng.normal(size=(N, N)), sigma=20)
 
-Z = large + 0.25 * medium
+# Combine terrain features
+Z = 0.5 * large + 0.5 * medium + 0.4 * small
+
+# Normalize terrain
 Z -= Z.min()
 Z /= Z.max()
 
@@ -185,3 +189,8 @@ update_forest_world_tree_heights()
 # Important: tree XY layout in forest.sdf.in is deterministic and static. Running
 # this script updates tree Z values from terrain; it does not randomize per run.
 
+# Robot spawn 10 cm above terrain at (0, 0)
+SPAWN_Z = terrain_height_at(0.0, 0.0) * HEIGHT + 0.10
+
+with open("src/fleet_simulation/terrain/spawn_height.txt", "w") as f:
+    f.write(f"{SPAWN_Z:.6f}\n")

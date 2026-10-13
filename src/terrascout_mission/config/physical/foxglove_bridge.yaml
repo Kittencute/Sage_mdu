@@ -39,6 +39,7 @@
     - ^/<robot_namespace>/obstacle_points$
     - ^/<robot_namespace>/keepout_obstacle_points$
     - ^/<robot_namespace>/keepout_zone_marker$
+    - ^/<robot_namespace>/mission_waypoint_markers$
     - ^/<robot_namespace>/odom$
     - ^/<robot_namespace>/polygon_stop$
     - ^/<robot_namespace>/polygon_slowdown$
@@ -71,6 +72,7 @@
     - ^/<robot_namespace>/initialpose$
     service_whitelist:
     - ^/<robot_namespace>/resume_autonomy$
+    - ^/<robot_namespace>/mission_waypoints/(clear|send_ordered|send_unordered)$
     capabilities:
     - clientPublish
     - services

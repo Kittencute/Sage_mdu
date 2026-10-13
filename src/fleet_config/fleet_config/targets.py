@@ -15,8 +15,17 @@ from fleet_config.model import (
     Target,
     World,
 )
+from pathlib import Path
 
 FOREST = World(name="forest", template=SourceFile("fleet_simulation", "worlds/forest.sdf.in"))
+
+WORKSPACE = Path(__file__).resolve().parents[3]
+
+SPAWN_Z = float(
+    (WORKSPACE / "src/fleet_simulation/terrain/spawn_height.txt")
+    .read_text()
+    .strip()
+)
 
 SIM = SimTarget(
     world=FOREST,
@@ -24,7 +33,7 @@ SIM = SimTarget(
     seed=1,
     gpu=True,
     groups={
-        "scouts": RobotGroup(TERRASCOUT, count=1, spawn_poses=((0.0, 0.0, 3.0, 0.0, 0.0, 0.0),)),
+        "scouts": RobotGroup(TERRASCOUT, count=1, spawn_poses=((0.0, 0.0, SPAWN_Z, 0.0, 0.0, 0.0),)),
         #"aeros": RobotGroup(AEROSCOUT, count=1, spawn_poses=((5.0, 2.0, 0.0, 0.0, 0.0, 0.0),)),
     },
 )

@@ -442,47 +442,58 @@ Result:
 
 ---
 
-## 9. Mission CLI Changes (Code-Wise)
+## 9. Mission and Foxglove Waypoint Changes
 
-This section is only about mission command-line behavior and related code updates.
+### Mission server Home behavior and crash fix
 
-### Scope note
+#### `src/terrascout_mission/terrascout_mission/mission_server.py`
 
-- `mission_server.py` was not changed for this feature set.
-- Behavior changed in mission sending client code (`send_mission.py`), tests, and docs.
+- Renamed the navigation `GetParameters` service client field from `_parameters` to `_navigation_parameters_client`. `_parameters` is reserved internally by the ROS 2 `Node`; overwriting it caused `get_parameter("saved_home")` to crash the server when `--home` was used.
+- Captures the first valid GPS fix as the dynamic spawn Home fallback. An explicitly configured `saved_home` from `--sethome` takes priority; otherwise the first valid startup position is returned by `get_home_point`.
+- Hosts the Foxglove click collector in-process so it uses the existing mission server executable and cannot cause startup failure because of separate executable discovery.
 
-### Files changed
+#### `src/fleet_common/fleet_common/send_mission.py`
 
-- `src/fleet_common/fleet_common/send_mission.py`
-- `src/fleet_common/test/test_mission_json.py`
+- `--home` asks the mission server for its saved Home and sends a home-only mission.
+- `--sethome LAT,LON` updates the mission server's `saved_home` parameter without sending a mission.
+- Invalid Home response text is handled as a clean client error rather than an uncaught coordinate parsing exception.
+
+### Foxglove click-to-mission workflow
+
+Files involved:
+
+- `src/terrascout_mission/terrascout_mission/foxglove_mission_input.py`
+- `src/terrascout_mission/terrascout_mission/mission_server.py`
+- `src/fleet_common/fleet_common/geodesy.py`
+- `src/terrascout_mission/config/simulation/foxglove_bridge.yaml`
+- `src/terrascout_mission/config/physical/foxglove_bridge.yaml`
+- `src/terrascout_mission/layouts/terrascout.json`
+- `src/terrascout_mission/package.xml`
 - `README.md`
 
-### What changed in `send_mission.py`
+The collector subscribes to `/<robot_namespace>/clicked_point` (`geometry_msgs/PointStamped`) from the Foxglove 3D Scene panel. It only accepts clicks in the configured `map` frame and converts map-frame ENU coordinates to GPS using the GNSS datum. Each accepted click is retained as a draft waypoint and visualized as a numbered marker on `mission_waypoint_markers`.
 
-- Routing mode support:
-  - `--ordered` keeps waypoint order as typed.
-  - `--unordered` reorders with nearest-next logic from selected home target.
-- Home target argument model:
-  - `--home lat,lon`: explicit return coordinate after waypoint execution.
-  - `--origin`: use dynamic spawn/datum coordinate from `fixposition/datum`.
-  - `--setorigin lat,lon`: set explicit origin/home target using alternate naming.
-- Mission dispatch behavior:
-  - Normal path: `TAKEOFF -> WAYPOINT(s) -> HOME -> LAND`.
-  - `--origin` with no waypoints: sends home-only mission.
-  - `--setorigin lat,lon` with no waypoints: no mission dispatched (no movement).
+The inverse geodesy helper returns coordinates in `(latitude, longitude, altitude)` order. `foxglove_mission_input.py` must preserve that order when storing click coordinates; swapping latitude and longitude creates invalid points thousands of kilometres away. The mission server validates leg lengths and will reject such a mission.
 
-### What changed in tests
+Foxglove Trigger services operate on the draft:
 
-`src/fleet_common/test/test_mission_json.py` now covers:
+- `/<robot_namespace>/mission_waypoints/clear` clears the draft.
+- `/<robot_namespace>/mission_waypoints/send_ordered` submits all points in click order.
+- `/<robot_namespace>/mission_waypoints/send_unordered` submits all points after nearest-next ordering.
 
-- ordered vs unordered waypoint behavior
-- home-only plan generation behavior
-- explicit home/origin coordinate parsing
+Both send services submit one `ExecuteMission` goal with `TAKEOFF -> WAYPOINT(s) -> HOME -> LAND`; the return Home in that mission is the robot's GPS position when submitted. Draft points remain visible if the mission server rejects the goal. The existing `send_mission.py` plan and waypoint-ordering helpers are reused. The 2D geographic map panel is display-only; waypoint clicks are made in the 3D Scene with its fixed frame set to `map`.
 
-### What changed in docs
+The Trigger service response is asynchronous with respect to the action: `success: true` means the goal was queued for `ExecuteMission`, not that the mission server accepted it or that navigation started. Check `mission_server` logs and `/terrascout1/mission_state` for acceptance/progress. A rejected goal is reported in the mission-server log; its click draft remains available to retry or clear.
 
-`README.md` mission examples and behavior notes were updated so operators can see:
+### Build/startup validation
 
-- which argument sets explicit home (`--home`)
-- which argument uses spawn/datum (`--origin`)
-- how `--setorigin` behaves with and without waypoints
+- `make build` passes all workspace tests (139 tests, 0 failures).
+- The Foxglove collector is attached to `mission_server` rather than launched as a separate executable. This avoids ROS executable lookup failure under `--symlink-install` when a newly added Python source file lacks executable permissions.
+- After rebuilding, `make up` was verified with all four simulation containers remaining up and `mission_server` reporting `ready for missions`.
+- During a live Foxglove test, the mission server rejected a draft because the earlier click-conversion code had latitude and longitude reversed; the log showed a first leg of about 4,939,886 m against the 45 m limit. The current collector unpacks `enu_to_llh()` as `lat, lon, _` and therefore fixes that specific rejection. Rebuild and restart after source edits before testing.
+
+### Other mission tester and launch changes
+
+- `src/terrascout_mission_tester/terrascout_menu.py` sends all configured JSON waypoints for Ordered/Unordered missions instead of asking the operator to select a subset. Single-waypoint selection remains for adding a waypoint or setting saved Home. The menu no longer includes the old return-to-start option 6 or y/N confirmations.
+- `Makefile` adds `make exec COMMAND=...` to run a command in the active unit container with the ROS workspace overlay sourced.
+- `terrascout_menu.py` checks whether host ROS can resolve `fleet_common` and falls back to the unit-container execution path when needed. The stack must be running for that fallback.

@@ -75,30 +75,58 @@ For a colored semi-opaque keepout zone volume in Foxglove, add a 3D panel layer 
 # AeroScout: Send a mission with an altitude of 10 meters
 ros2 run fleet_common send_mission.py --namespace aeroscout1 --altitude 10 47.39785,8.54566
 
-# TerraScout: Send a simple mission with one waypoint
-ros2 run fleet_common send_mission.py --namespace terrascout1 --home 47.397742,8.545594 47.39781,8.545594
+# TerraScout: Send one waypoint and return to the mission starting position
+ros2 run fleet_common send_mission.py --namespace terrascout1 --return 47.39781,8.545594
 
-# TerraScout - Ordered (default): follows waypoint order exactly (5 waypoints)
-ros2 run fleet_common send_mission.py --namespace terrascout1 --ordered --home 47.397742,8.545594 47.39779,8.54564 47.39788,8.54581 47.39760,8.54595 47.39754,8.54545 47.39793,8.54542
+# TerraScout: Send one waypoint and then go to the saved Home position
+ros2 run fleet_common send_mission.py --namespace terrascout1 --home 47.39781,8.545594
 
-# TerraScout - Unordered: auto-reorder by nearest-next from home target (same 5 waypoints)
-ros2 run fleet_common send_mission.py --namespace terrascout1 --unordered --home 47.397742,8.545594 47.39779,8.54564 47.39788,8.54581 47.39760,8.54595 47.39754,8.54545 47.39793,8.54542
+# TerraScout - Ordered (default): visit 5 waypoints and return to mission start
+ros2 run fleet_common send_mission.py --namespace terrascout1 --ordered --return 47.39779,8.54564 47.39788,8.54581 47.39760,8.54595 47.39754,8.54545 47.39793,8.54542
 
-# TerraScout - Home (go to dynamic spawn/datum home)
-ros2 run fleet_common send_mission.py --namespace terrascout1 --origin
+# TerraScout - Unordered: reorder 5 waypoints and return to mission start
+ros2 run fleet_common send_mission.py --namespace terrascout1 --unordered --return 47.39779,8.54564 47.39788,8.54581 47.39760,8.54595 47.39754,8.54545 47.39793,8.54542
 
-# TerraScout - Set origin/home target explicitly
-ros2 run fleet_common send_mission.py --namespace terrascout1 --setorigin 47.397742,8.545594 
+# TerraScout - Home: navigate directly to the saved Home position
+ros2 run fleet_common send_mission.py --namespace terrascout1 --home
+
+# TerraScout - Set Home coordinates (does not start a mission)
+ros2 run fleet_common send_mission.py --namespace terrascout1 --sethome 47.397742,8.545594
+
+# TerraScout - Clear: stop the active mission and clear its visualization
+ros2 run fleet_common send_mission.py --namespace terrascout1 --clear
+
+# Add a waypoint without changing the current navigation target
+ros2 run fleet_common send_mission.py --namespace terrascout1 --add --ordered 47.39790,8.54570
+
+# Add a waypoint and reorder the remaining route
+ros2 run fleet_common send_mission.py --namespace terrascout1 --add --unordered 47.39790,8.54570
 ```
 
 Mission command behavior:
 
-- Default list is: TAKEOFF -> WAYPOINT(s) -> HOME -> LAND
-- `--home lat,lon` means: after waypoints, go back to this coordinate
-- `--origin` means: go to the original spawn/datum home position
-- `--setorigin lat,lon` means: set a new coordinate to use as that origin/home target
-- `--ordered` keeps your waypoint sequence (default)
-- `--unordered` reorders waypoints to a nearest-next route from selected home target
+- Default mission sequence: TAKEOFF -> WAYPOINT(s) -> HOME/RETURN -> LAND
+- `--return` returns to the robot's position when the current mission was started
+- `--home` returns to the saved Home position after completing the waypoints
+- `--sethome lat,lon` sets a new Home position without starting a mission
+- `--clear` cancels the active mission and clears its waypoints from the server and Foxglove
+- `--ordered` keeps the waypoint sequence exactly as provided (default)
+- `--unordered` reorders waypoints using a nearest-next route
+- `--add --ordered lat,lon` adds a waypoint after the remaining waypoints in the active mission
+- `--add --unordered lat,lon` adds a waypoint and reorders the remaining unvisited waypoints
+
+### Build a mission by clicking in Foxglove
+
+TerraScout's Foxglove 3D Scene panel can collect map-frame clicks as a waypoint draft. This uses the 3D Scene viewport (with its fixed frame set to `map`); the 2D geographic map panel is for viewing and does not collect mission clicks.
+
+1. Open the TerraScout Foxglove connection and the SAGE TerraScout layout.
+2. In the 3D Scene panel, click each desired location in order. Numbered cyan markers show the collected draft.
+3. Add a Foxglove **Service Call** panel and call one of these empty `std_srvs/srv/Trigger` services:
+	- `/terrascout1/mission_waypoints/send_ordered` to visit points in click order.
+	- `/terrascout1/mission_waypoints/send_unordered` to reorder all clicked points using nearest-next routing.
+4. The mission returns to the robot's position when the mission is submitted, matching `--return`.
+
+Use `/terrascout1/mission_waypoints/clear` to discard the draft before submitting. For another robot, replace `terrascout1` with its namespace. Foxglove submits the same `ExecuteMission` action plan used by `send_mission.py`; no shell command needs to be typed. The bridge must be running, and the click frame must be `map`.
 
 ### Take over and hand back
 

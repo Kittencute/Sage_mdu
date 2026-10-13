@@ -178,6 +178,9 @@
         "/<robot_namespace>/plan": {
           "visible": true
         },
+        "/<robot_namespace>/mission_waypoint_markers": {
+          "visible": true
+        },
         "/<robot_namespace>/map": {
           "visible": true
         },

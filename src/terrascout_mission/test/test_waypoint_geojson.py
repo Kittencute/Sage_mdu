@@ -132,3 +132,18 @@ def test_single_waypoint():
 
     assert len(points) == 1
     assert len(lines) == 0
+
+def test_first_waypoint_active():
+    result = build_waypoints_geojson(
+        WAYPOINTS,
+        current_index=0,
+        active=True,
+    )
+
+    fc, points, lines = _parse(result)
+
+    assert points[0]["properties"]["style"]["color"] == ORANGE
+    assert points[0]["properties"]["metadata"]["status"] == "active"
+
+    for point in points[1:]:
+        assert point["properties"]["style"]["color"] == BLUE

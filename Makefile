@@ -7,7 +7,7 @@ TARGET ?= $(shell cat $(TARGET_FILE) 2>/dev/null)
 SAGE_INSTANCE ?= 1
 SERVICE ?=
 
-_TARGET_GOALS := build up shell dev
+_TARGET_GOALS := build up shell dev exec
 ifneq (,$(filter $(_TARGET_GOALS),$(MAKECMDGOALS)))
   ifeq ($(strip $(TARGET)),)
     $(error No TARGET selected. Run `make use TARGET=<name>` (see `make list`), or pass TARGET=<name> on the command line.)
@@ -89,7 +89,7 @@ WORKSPACE_MOUNTS := \
 	-v $(CURDIR)/log:/workspace/log:rw \
 	-v $(CURDIR)/.ccache:/workspace/.ccache:rw
 
-.PHONY: help list use build _build-mode render up down shell dev logs clean
+.PHONY: help list use build _build-mode render up down shell exec dev logs clean
 
 help:
 	@echo "SAGE Fleet Management System"
@@ -104,6 +104,7 @@ help:
 	@echo "  make up                    # render the target, record the run in runs/, and start the stack"
 	@echo "  make down                  # stop"
 	@echo "  make shell                 # shell into a running unit container"
+	@echo "  make exec COMMAND=<...>    # run a command in a running unit container"
 	@echo "  make dev                   # shell on the fleet network in a separate container (teleop, debugging)"
 	@echo "  make logs                  # follow compose logs"
 	@echo "  make clean                 # remove images and build output"
@@ -264,6 +265,16 @@ shell:
 	fi; \
 	$(compose_environment); \
 	$(DC_RENDER) exec "$$service" ros-workspace-exec bash
+
+exec:
+	@test -n "$(COMMAND)" \
+		|| { echo "exec failed: operation: run a command in the unit container; cause: COMMAND is required" >&2; exit 1; }
+	@test -f $(RENDER_DIR)/fleet.yaml \
+		|| { echo "exec failed: operation: read $(RENDER_DIR)/fleet.yaml; cause: the target is not rendered; run make up TARGET=$(TARGET) SAGE_INSTANCE=$(SAGE_INSTANCE)" >&2; exit 1; }
+	@service=$$(python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["units"][0]["service"])' $(RENDER_DIR)/fleet.yaml) \
+		|| { echo "exec failed: operation: read the first unit service from $(RENDER_DIR)/fleet.yaml; cause: reported above" >&2; exit 1; }; \
+	$(compose_environment); \
+	$(DC_RENDER) exec "$$service" ros-workspace-exec $(COMMAND)
 
 dev:
 	@test -f $(RENDER_DIR)/compose.yaml \

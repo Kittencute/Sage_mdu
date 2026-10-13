@@ -1,0 +1,12 @@
+mission 1 ended with status 4: navigate to command 3 failed: cause: navigate_to_pose ended with status 6
+mission target: 47.3977421,8.5455929
+waiting for the mission server to be ready for missions
+mission 1 accepted with 9 commands
+command 1 status 1
+command 1 status 3
+command 2 status 1
+command 2 status 3
+command 3 status 1
+command 3 status 4
+[ros2run]: Process exited with failure 1
+make: *** [Makefile:272: exec] Error 1

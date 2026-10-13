@@ -668,6 +668,7 @@ def mission_server(unit: UnitContext, after: list[str]) -> Process:
             "datum_topic": DATUM_TOPIC,
             "position_topic": POSITION_TOPIC,
             "max_leg_length_m": max_leg_length_m(),
+            "saved_home": "",
         },
         after=after,
         ready=NodeProbe(f"/{unit.namespace}/{MISSION_SERVER}"),
@@ -720,7 +721,11 @@ def processes(unit: UnitContext) -> list[Process]:
     entries += teleop_processes(unit, stage_after)
     entries += foxglove_processes(unit, stage_after)
     entries += nav2_processes(unit, navigation_after)
-    entries += [mission_server(unit, [NAV2]), keepout_server(unit, [NAV2]), unit_agent(unit)]
+    entries += [
+        mission_server(unit, [NAV2]),
+        keepout_server(unit, [NAV2]),
+        unit_agent(unit),
+    ]
     entries += madum_processes(unit)
     entries += recorder_process(unit, recorded_topics(unit))
     return entries

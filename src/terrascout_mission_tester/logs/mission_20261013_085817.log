@@ -1,0 +1,9 @@
+mission 1 ended with status 5: mission cleared by operator
+mission target: 47.3977420,8.5455930
+waiting for the mission server to be ready for missions
+mission 1 accepted with 4 commands
+command 1 status 1
+command 1 status 3
+command 2 status 1
+command 2 status 5
+[ros2run]: Process exited with failure 1
