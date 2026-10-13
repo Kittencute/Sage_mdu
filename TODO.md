@@ -1,15 +1,17 @@
 # TODO
 
 ## Mission Replanner
-- [ ] Combine path and mission planning so failed navigation can be reported to the mission layer with waypoint context
-- [ ] Handle unreachable waypoints explicitly; never silently skip one—allow a clear failure or operator-selected alternate waypoint
+- [x] Coordinate Nav2 behavior-tree recovery with a bounded mission-layer retry of the same aborted waypoint
+- [x] Handle unreachable waypoints explicitly: fail with the original command ID after retries; never silently skip or fabricate an alternate target
+- [ ] Add an operator workflow to edit/replace a failed waypoint without resending the entire mission
 - [ ] Investigate waypoint ordering
 
 ## Nav2 recovery and route quality
 - [x] Relax the progress checker so slow motion/recovery does not abort after only 5 seconds
 - [x] Allow bounded reverse motion through both MPPI and the velocity smoother
 - [x] Clear both costmaps and compute a fresh path after FollowPath fails
-- [ ] Rebuild and verify XML/parameter loading, then test blocked and narrow routes in simulation
+- [x] After Nav2 exhausts recovery, wait briefly and retry the exact failed waypoint once by default
+- [ ] Rebuild and verify XML/parameter loading, then test blocked, narrow, reverse, retry, and explicit failure routes in simulation
 - [ ] Review controller loop-rate warnings separately; lower simulation CPU load or tune MPPI only after profiling confirms it is the bottleneck
 
 ## Mission Sending

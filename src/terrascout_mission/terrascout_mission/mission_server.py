@@ -81,6 +81,8 @@ class _Mission:
     phase: Phase = Phase.NAVIGATING
     index: int = 0
     navigation: _Navigation | None = None
+    waypoint_retries: int = 0
+    retry_after: Time | None = None
     hold_until: Time | None = None
     deadline: Time | None = None
     overdue: str = ""
@@ -138,6 +140,23 @@ class GroundMissionServer(Node):
             1.0,
             1000.0,
             "at most half the navigation global costmap window minus the goal margin",
+        )
+        self._waypoint_retry_limit = declare(
+            self,
+            "waypoint_retry_limit",
+            Parameter.Type.INTEGER,
+            "Additional same-goal attempts after Nav2 aborts a mission waypoint",
+            0,
+            3,
+            "0 disables mission-layer retry; unreachable waypoints are never skipped",
+        )
+        self._waypoint_retry_delay_s = declare(
+            self,
+            "waypoint_retry_delay_s",
+            Parameter.Type.DOUBLE,
+            "Delay before retrying a waypoint after Nav2 exhausts its behavior-tree recoveries",
+            0.0,
+            30.0,
         )
         self._saved_home = declare(
             self,
@@ -533,6 +552,16 @@ class GroundMissionServer(Node):
         self._publish_state(mission, MissionState.MISSION_RUNNING)
     def _navigate(self, mission: _Mission) -> None:
         if mission.navigation is None:
+            if mission.retry_after is not None:
+                if self._now() < mission.retry_after:
+                    return
+                mission.retry_after = None
+                self.get_logger().warning(
+                    f"retrying waypoint command "
+                    f"{mission.plan.commands[mission.index].id} at the same target "
+                    f"(attempt {mission.waypoint_retries + 1} of "
+                    f"{self._waypoint_retry_limit + 1})"
+                )
             mission.navigation = self._send_goal(mission, mission.point_of[mission.index])
             return
         status = self._navigation_status(mission.navigation)
@@ -541,9 +570,30 @@ class GroundMissionServer(Node):
         mission.navigation = None
         command = mission.plan.commands[mission.index]
         if status != GoalStatus.STATUS_SUCCEEDED:
+            if (
+                command.kind == MissionCommand.WAYPOINT
+                and status == GoalStatus.STATUS_ABORTED
+                and mission.waypoint_retries < self._waypoint_retry_limit
+            ):
+                mission.waypoint_retries += 1
+                mission.retry_after = self._now() + Duration(
+                    seconds=self._waypoint_retry_delay_s
+                )
+                self.get_logger().warning(
+                    f"Nav2 exhausted recovery for waypoint command {command.id}; "
+                    f"retrying the same target after {self._waypoint_retry_delay_s:.1f} s "
+                    f"({mission.waypoint_retries}/{self._waypoint_retry_limit} retries)"
+                )
+                return
+            attempts = mission.waypoint_retries + 1
+            retry_note = (
+                f" after {attempts} attempts"
+                if command.kind == MissionCommand.WAYPOINT
+                else ""
+            )
             raise MissionError(
-                f"navigate to command {command.id} failed: cause: navigate_to_pose ended "
-                f"with status {status}"
+                f"navigate to command {command.id}{retry_note} failed: cause: "
+                f"navigate_to_pose ended with status {status}; target was not skipped"
             )
         if command.hold_s > 0.0:
             mission.phase = Phase.HOLDING
@@ -551,6 +601,8 @@ class GroundMissionServer(Node):
             return
         self._complete_command(mission)
     def _complete_command(self, mission: _Mission) -> None:
+        mission.waypoint_retries = 0
+        mission.retry_after = None
         self._set_status(mission, mission.index, MissionState.COMMAND_FINISHED)
         mission.index += 1
         self._publish_geojson(mission, self._waypoints_before(mission, mission.index))

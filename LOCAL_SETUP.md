@@ -514,8 +514,14 @@ The 2026-10-13 simulation log showed repeated `controller_server: Failed to make
 - After `FollowPath` fails, the contextual recovery now clears local and global costmaps and explicitly computes a fresh path to the same goal before retrying the controller.
 - This replans around changed/cleared obstacle information but does not replace or skip the mission waypoint. A genuinely unreachable waypoint still needs mission-layer reporting and an operator decision.
 
+### `src/terrascout_mission/terrascout_mission/mission_server.py`
+
+- Nav2 remains responsible for geometric obstacle avoidance and its behavior-tree recovery cycle. If Nav2 ultimately aborts a `WAYPOINT`, the mission server waits 2 seconds and retries the exact same target once by default (`waypoint_retry_limit: 1`, `waypoint_retry_delay_s: 2.0`). Both parameters are configurable at startup; retries are bounded to 0–3 and 0–30 seconds.
+- A successful retry finishes the original command normally. If all attempts fail, the mission reports `MISSION_FAILED` with that command ID and keeps the failed waypoint visible. It does not silently skip the command or pretend a nearby substitute was reached; the operator can revise/reorder the mission.
+- This separation is intentional: Nav2 chooses an alternate path to the requested coordinate; the mission layer retries only after Nav2 exhausts path/controller recovery. It never invents another task coordinate because doing so could invalidate the mission objective.
+
 ### Validation required
 
 - The existing run was stopped after navigation failed; the updated parameters and behavior tree have not yet been exercised in simulation.
-- Rebuild/restart and verify parameter/XML loading, then test an unobstructed route, a temporary obstacle that can be routed around, a route requiring a short reverse maneuver, and a truly blocked/unreachable waypoint.
+- Rebuild/restart and verify parameter/XML loading, then test an unobstructed route, a temporary obstacle that can be routed around, a route requiring a short reverse maneuver, a transient first-attempt failure followed by mission-layer retry, and a truly blocked waypoint that must end as an explicit command failure without being skipped.
 - Monitor actual command velocities, progress-checker resets, planner/controller failures, and controller loop-rate warnings. The loop-rate warnings may indicate simulation/CPU scheduling load; do not further loosen stall detection or increase MPPI workload without measurement.

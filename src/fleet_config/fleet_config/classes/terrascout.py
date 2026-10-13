@@ -668,6 +668,9 @@ def mission_server(unit: UnitContext, after: list[str]) -> Process:
             "datum_topic": DATUM_TOPIC,
             "position_topic": POSITION_TOPIC,
             "max_leg_length_m": max_leg_length_m(),
+            # After Nav2 exhausts BT recovery, retry the same failed waypoint once.
+            "waypoint_retry_limit": 1,
+            "waypoint_retry_delay_s": 2.0,
             "saved_home": "",
         },
         after=after,
