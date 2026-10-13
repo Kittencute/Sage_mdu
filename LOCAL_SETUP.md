@@ -497,3 +497,25 @@ The Trigger service response is asynchronous with respect to the action: `succes
 - `src/terrascout_mission_tester/terrascout_menu.py` sends all configured JSON waypoints for Ordered/Unordered missions instead of asking the operator to select a subset. Single-waypoint selection remains for adding a waypoint or setting saved Home. The menu no longer includes the old return-to-start option 6 or y/N confirmations.
 - `Makefile` adds `make exec COMMAND=...` to run a command in the active unit container with the ROS workspace overlay sourced.
 - `terrascout_menu.py` checks whether host ROS can resolve `fleet_common` and falls back to the unit-container execution path when needed. The stack must be running for that fallback.
+
+---
+
+## 10. Nav2 Progress and Recovery Tuning
+
+The 2026-10-13 simulation log showed repeated `controller_server: Failed to make progress`, intermittent missed 20 Hz control-loop deadlines, optimizer failures, and eventual navigation failure at mission command 3. A single failed mission waypoint must not be silently skipped: it may be an obstacle, a bad map/route, or a real safety issue. The mission should either reach that waypoint, fail with its identity, or allow an operator to choose an alternate point.
+
+### `src/terrascout_navigation/config/nav2.yaml`
+
+- Relaxed `SimpleProgressChecker` from a 5 s / 1.0 m requirement to 12 s / 0.35 m, with 0.25 rad angular progress. This avoids treating cautious movement and recovery motion as an immediate stall while still detecting a stopped robot.
+- Enabled bounded reverse velocity in MPPI (`vx_min: -0.25`) and the velocity smoother (`min_velocity[0]: -0.25`). The existing `PreferForwardCritic` still favors forward motion; reverse is available when useful rather than being forced.
+
+### `src/terrascout_navigation/config/navigate_to_pose.xml`
+
+- After `FollowPath` fails, the contextual recovery now clears local and global costmaps and explicitly computes a fresh path to the same goal before retrying the controller.
+- This replans around changed/cleared obstacle information but does not replace or skip the mission waypoint. A genuinely unreachable waypoint still needs mission-layer reporting and an operator decision.
+
+### Validation required
+
+- The existing run was stopped after navigation failed; the updated parameters and behavior tree have not yet been exercised in simulation.
+- Rebuild/restart and verify parameter/XML loading, then test an unobstructed route, a temporary obstacle that can be routed around, a route requiring a short reverse maneuver, and a truly blocked/unreachable waypoint.
+- Monitor actual command velocities, progress-checker resets, planner/controller failures, and controller loop-rate warnings. The loop-rate warnings may indicate simulation/CPU scheduling load; do not further loosen stall detection or increase MPPI workload without measurement.

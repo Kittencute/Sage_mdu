@@ -1,7 +1,7 @@
 <!--
   Skid-steer navigation behavior tree.
-  Only replans when path becomes invalid (blocked) or goal changes.
-  Based on navigate_w_recovery_and_replanning_only_if_path_becomes_invalid.xml
+  Reuses a valid path during normal tracking; after FollowPath fails, clears both
+  costmaps and explicitly computes a fresh path before retrying the controller.
 -->
 <root BTCPP_format="4" main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
@@ -25,7 +25,12 @@
         </RateController>
         <RecoveryNode number_of_retries="1" name="FollowPath">
           <FollowPath path="{path}" controller_id="{selected_controller}" error_code_id="{follow_path_error_code}"/>
-          <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="local_costmap/clear_entirely_local_costmap"/>
+          <Sequence name="ClearAndReplanAfterFollowFailure">
+            <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="local_costmap/clear_entirely_local_costmap"/>
+            <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>
+            <!-- Do not silently skip an unreachable mission waypoint: retry its goal with a newly planned route. -->
+            <ComputePathToPose goal="{goal}" path="{path}" planner_id="{selected_planner}" error_code_id="{compute_path_error_code}"/>
+          </Sequence>
         </RecoveryNode>
       </PipelineSequence>
       <ReactiveFallback name="RecoveryFallback">
