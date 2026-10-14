@@ -40,8 +40,10 @@
       observation_sources:
       - pointcloud
       pointcloud:
-        max_height: 0.5
-        min_height: -0.2
+        # Obstacle points are published in base_link; use the requested vertical
+        # band relative to the robot reference frame.
+        max_height: 1.5
+        min_height: -0.5
         source_timeout: 0.5
         topic: obstacle_points
         type: pointcloud
@@ -74,7 +76,8 @@
         ax_max: 2.5
         ax_min: -2.5
         az_max: 3.2
-        batch_size: 500
+        # Reduce per-cycle optimization work after observed 4.8 Hz controller drops.
+        batch_size: 200
         critics:
         - ConstraintCritic
         - CostCritic
@@ -88,7 +91,7 @@
         enforce_path_inversion: false
         inversion_xy_tolerance: 0.3
         inversion_yaw_tolerance: 0.5
-        iteration_count: 2
+        iteration_count: 1
         max_angular_accel: 2.5
         model_dt: 0.05
         plugin: nav2_rotation_shim_controller::RotationShimController
@@ -117,8 +120,8 @@
       progress_checker:
         plugin: nav2_controller::SimpleProgressChecker
         # Allow slow/cautious motion and brief replanning before declaring a stall.
-        movement_time_allowance: 12.0
-        required_movement_radius: 0.35
+        movement_time_allowance: 8.0
+        required_movement_radius: 0.25
         required_movement_angle: 0.25
   global_costmap:
     global_costmap:
@@ -126,12 +129,14 @@
         always_send_full_costmap: true
         footprint: '[[0.465, 0.35], [0.465, -0.35], [-0.465, -0.35], [-0.465, 0.35]]'
         footprint_padding: 0.01
+        global_frame: map
         height: 100
         inflation_layer:
-          cost_scaling_factor: 2.75
-          inflation_radius: 0.75
+          cost_scaling_factor: 5.0
+          inflation_radius: 0.6
           plugin: nav2_costmap_2d::InflationLayer
         initial_transform_timeout: 30.0
+        robot_base_frame: base_link
         obstacle_layer:
           max_obstacle_height: 1000.0
           min_obstacle_height: -1000.0
@@ -150,6 +155,9 @@
             expected_update_rate: 0.5
             marking: true
             clearing: false
+            # Nav2 applies these limits after transforming points into the
+            # costmap global frame, so keep them wide. The incoming cloud is
+            # already cropped relative to base_link by ground_segmentation.
             max_obstacle_height: 1000.0
             min_obstacle_height: -1000.0
             obstacle_max_range: 20.0
@@ -179,8 +187,8 @@
         robot_base_frame: base_link
         height: 20
         inflation_layer:
-          cost_scaling_factor: 3.0
-          inflation_radius: 0.75
+          cost_scaling_factor: 5.0
+          inflation_radius: 0.6
           plugin: nav2_costmap_2d::InflationLayer
         initial_transform_timeout: 30.0
         obstacle_layer:
@@ -201,6 +209,8 @@
             expected_update_rate: 0.5
             marking: true
             clearing: false
+            # Height limits are evaluated in the costmap global frame, not
+            # relative to base_link; accept the segmented base_link cloud here.
             max_obstacle_height: 1000.0
             min_obstacle_height: -1000.0
             obstacle_max_range: 12.0

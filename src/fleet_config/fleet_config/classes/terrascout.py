@@ -74,6 +74,7 @@ COLLISION_POLYGONS = ("PolygonStop", "PolygonSlow")
 
 FRAME_BASE = "base_link"
 FRAME_GLOBAL = "map"
+MAP_YAW_OFFSET_DEG = 0.0
 FRAME_LIDAR = "lidar_link"
 FRAME_CAMERA = "fp_cam_link"
 
@@ -380,6 +381,7 @@ def gnss_processes(unit: UnitContext, after: list[str]) -> list[Process]:
                     "datum_latitude": datum.lat,
                     "datum_longitude": datum.lon,
                     "datum_altitude": datum.elevation,
+                    "map_yaw_offset_deg": MAP_YAW_OFFSET_DEG,
                 },
                 remaps=TF_REMAPS,
                 after=after,
@@ -671,6 +673,10 @@ def mission_server(unit: UnitContext, after: list[str]) -> Process:
             # After Nav2 exhausts BT recovery, retry the same failed waypoint once.
             "waypoint_retry_limit": 1,
             "waypoint_retry_delay_s": 2.0,
+            # A failed waypoint stays marked failed; try the next planned target.
+            "continue_after_waypoint_failure": True,
+            # Keep in sync with gnss_shim; 0 is correct for the ENU simulation world.
+            "map_yaw_offset_deg": MAP_YAW_OFFSET_DEG,
             "saved_home": "",
         },
         after=after,

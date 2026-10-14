@@ -6,6 +6,7 @@
         <geometry>
           <mesh>
             <uri>model://oak_tree/meshes/oak_tree.dae</uri>
+            <scale>2.27 2.27 2.27</scale>
           </mesh>
         </geometry>
       </collision>
@@ -13,6 +14,7 @@
         <geometry>
           <mesh>
             <uri>model://oak_tree/meshes/oak_tree.dae</uri>
+            <scale>2.27 2.27 2.27</scale>
             <submesh>
               <name>Branch</name>
             </submesh>
@@ -38,6 +40,7 @@
         <geometry>
           <mesh>
             <uri>model://oak_tree/meshes/oak_tree.dae</uri>
+            <scale>2.27 2.27 2.27</scale>
             <submesh>
               <name>Bark</name>
             </submesh>

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import math
 
 import rclpy
 from geometry_msgs.msg import TransformStamped
@@ -38,6 +39,17 @@ class GnssShimNode(Node):
             NavSatFix, "navsat", self._navsat_cb, qos_profile_sensor_data
         )
 
+        self._map_yaw_offset = math.radians(
+            declare(
+                self,
+                "map_yaw_offset_deg",
+                Parameter.Type.DOUBLE,
+                "Counter-clockwise yaw from geographic east to map +X, in degrees",
+                -180.0,
+                180.0,
+                "0 for an ENU-aligned map; set only from measured axis calibration",
+            )
+        )
         self._publish_static_map_odom()
         self._publish_datum()
         self.get_logger().info("Publishing TF")
@@ -47,7 +59,10 @@ class GnssShimNode(Node):
         t.header.stamp = self.get_clock().now().to_msg()
         t.header.frame_id = FRAME_GLOBAL
         t.child_frame_id = FRAME_ODOM
-        t.transform.rotation.w = 1.0
+        # odom is ENU; map +X is rotated by map_yaw_offset from east.
+        # The map<-odom TF therefore carries the inverse rotation.
+        t.transform.rotation.z = math.sin(-self._map_yaw_offset / 2.0)
+        t.transform.rotation.w = math.cos(-self._map_yaw_offset / 2.0)
         self.static_tf_broadcaster.sendTransform(t)
 
     def _publish_datum(self):

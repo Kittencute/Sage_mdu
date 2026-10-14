@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 
-from fleet_common.geodesy import enu_to_llh, llh_to_enu
+from fleet_common.geodesy import enu_to_llh, enu_to_map, llh_to_enu, map_to_enu
 from fleet_common.qos import latched_qos
 from fleet_common.send_mission import build_plan_items, order_waypoints
 from fleet_interfaces.action import ExecuteMission
@@ -22,9 +22,10 @@ from visualization_msgs.msg import Marker, MarkerArray
 class FoxgloveMissionInput:
     """Attach waypoint collection services and subscriptions to an existing ROS node."""
 
-    def __init__(self, node: Node) -> None:
+    def __init__(self, node: Node, map_yaw_offset_rad: float = 0.0) -> None:
         self._node = node
         self._frame = node.get_parameter("global_frame").value
+        self._map_yaw_offset_rad = map_yaw_offset_rad
         self._datum: NavSatFix | None = None
         self._position: NavSatFix | None = None
         self._points: list[tuple[float, float, float]] = []
@@ -65,8 +66,9 @@ class FoxgloveMissionInput:
         if not all(math.isfinite(value) for value in (point.x, point.y, point.z)):
             self.get_logger().warning("ignored clicked point: coordinates are not finite")
             return
+        east, north = map_to_enu(point.x, point.y, self._map_yaw_offset_rad)
         lat, lon, _ = enu_to_llh(
-            point.x, point.y, point.z,
+            east, north, point.z,
             self._datum.latitude, self._datum.longitude, self._datum.altitude,
         )
         self._points.append((lat, lon, 0.0))
@@ -84,10 +86,11 @@ class FoxgloveMissionInput:
         for index, (lat, lon, _) in enumerate(self._points, start=1):
             if self._datum is None:
                 break
-            x, y, z = llh_to_enu(
+            east, north, z = llh_to_enu(
                 lat, lon, 0.0,
                 self._datum.latitude, self._datum.longitude, self._datum.altitude,
             )
+            x, y = enu_to_map(east, north, self._map_yaw_offset_rad)
             marker = Marker()
             marker.header = Header(frame_id=self._frame)
             marker.ns = "foxglove_mission_waypoints"

@@ -1,14 +1,15 @@
 --- a/src/ground_segmentation_ros2_node.cpp
 +++ b/src/ground_segmentation_ros2_node.cpp
-@@ -24,6 +24,7 @@
+@@ -24,6 +24,8 @@
  
  #include <Eigen/Dense>
  #include <memory>
 +#include <stdexcept>
  #include <chrono>
++#include <algorithm>
  #include <vector>
  #include <limits>
-@@ -186,8 +187,7 @@
+@@ -186,8 +188,7 @@
          try {
              tf =  buffer->lookupTransform(robot_frame, velo_frame, pointcloud_msg->header.stamp, tf2::durationFromSec(transform_tolerance));
          } catch (tf2::TransformException &ex) {
@@ -18,7 +19,7 @@
          }        
  
          Eigen::Isometry3d T = tf2::transformToEigen(tf.transform);
-@@ -230,8 +230,7 @@
+@@ -230,8 +231,7 @@
                  }
                  catch (tf2::TransformException &ex)
                  {
@@ -28,7 +29,26 @@
                  }
  
                  robot_in_gravity = imu_in_gravity * robot_in_imu;
-@@ -309,7 +308,13 @@
+@@ -267,3 +267,18 @@
+         final_ground_points = post_ground_points;
+         *final_non_ground_points = *pre_non_ground_points + *post_non_ground_points;
++
++        // Filter obstacle returns in robot_frame before publishing. Nav2's
++        // obstacle layer transforms points into its global_frame before applying
++        // min/max obstacle height, so those limits cannot express a base_link Z band.
++        const double obstacle_min_height = this->get_parameter("obstacle_min_height").as_double();
++        const double obstacle_max_height = this->get_parameter("obstacle_max_height").as_double();
++        final_non_ground_points->points.erase(
++            std::remove_if(
++                final_non_ground_points->points.begin(),
++                final_non_ground_points->points.end(),
++                [obstacle_min_height, obstacle_max_height](const PointType &point) {
++                    return point.z < obstacle_min_height || point.z > obstacle_max_height;
++                }),
++            final_non_ground_points->points.end());
++
+         std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+@@ -309,7 +324,13 @@
      rclcpp::NodeOptions options;
      options.allow_undeclared_parameters(true);
      options.automatically_declare_parameters_from_overrides(true);

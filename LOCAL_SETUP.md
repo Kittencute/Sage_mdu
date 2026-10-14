@@ -506,22 +506,24 @@ The 2026-10-13 simulation log showed repeated `controller_server: Failed to make
 
 ### `src/terrascout_navigation/config/nav2.yaml`
 
-- Relaxed `SimpleProgressChecker` from a 5 s / 1.0 m requirement to 12 s / 0.35 m, with 0.25 rad angular progress. This avoids treating cautious movement and recovery motion as an immediate stall while still detecting a stopped robot.
+- Relaxed `SimpleProgressChecker` from a 5 s / 1.0 m requirement to 8 s / 0.25 m, with 0.25 rad angular progress. This detects a stalled robot sooner while allowing cautious movement.
 - Enabled bounded reverse velocity in MPPI (`vx_min: -0.25`) and the velocity smoother (`min_velocity[0]: -0.25`). The existing `PreferForwardCritic` still favors forward motion; reverse is available when useful rather than being forced.
 
 ### `src/terrascout_navigation/config/navigate_to_pose.xml`
 
-- After `FollowPath` fails, the contextual recovery now clears local and global costmaps and explicitly computes a fresh path to the same goal before retrying the controller.
-- This replans around changed/cleared obstacle information but does not replace or skip the mission waypoint. A genuinely unreachable waypoint still needs mission-layer reporting and an operator decision.
+- After `FollowPath` fails, the first contextual recovery action backs straight up 1 m (0.15 m/s, 12 s allowance), then clears both costmaps and computes a fresh path to the same goal.
+- The collision monitor remains active during reverse. If it blocks the maneuver or the backup action times out, Nav2 proceeds to its bounded recovery cycle; it does not force motion through an obstacle.
 
 ### `src/terrascout_mission/terrascout_mission/mission_server.py`
 
 - Nav2 remains responsible for geometric obstacle avoidance and its behavior-tree recovery cycle. If Nav2 ultimately aborts a `WAYPOINT`, the mission server waits 2 seconds and retries the exact same target once by default (`waypoint_retry_limit: 1`, `waypoint_retry_delay_s: 2.0`). Both parameters are configurable at startup; retries are bounded to 0–3 and 0–30 seconds.
-- A successful retry finishes the original command normally. If all attempts fail, the mission reports `MISSION_FAILED` with that command ID and keeps the failed waypoint visible. It does not silently skip the command or pretend a nearby substitute was reached; the operator can revise/reorder the mission.
-- This separation is intentional: Nav2 chooses an alternate path to the requested coordinate; the mission layer retries only after Nav2 exhausts path/controller recovery. It never invents another task coordinate because doing so could invalidate the mission objective.
+- A successful retry finishes the original command normally. If both attempts are aborted and a later positional command exists, the mission marks the failed command, returns to the last reached point, then continues to the next planned positional command. It does not invent a substitute coordinate. If backtracking fails, or there is no later target, the mission ends as failed.
+- `continue_after_waypoint_failure` enables that bounded fallback. It runs only after Nav2 reports `STATUS_ABORTED` and the same-target retry is exhausted; cancellation does not trigger it. General Nav2 recoveries prioritize backup, then costmap clearing, waiting, and spin.
+- `map_yaw_offset_deg` is a single fleet setting shared by simulation `map→odom` TF and mission/Foxglove GPS conversions. It defaults to 0 (the world is ENU with zero heading); only change it after measuring +X/+Y against known east/north motion. Do not compensate by rotating only the Foxglove camera.
+- The global costmap explicitly uses `map` and `base_link`; the rolling local costmap uses `odom` and `base_link`.
 
 ### Validation required
 
-- The existing run was stopped after navigation failed; the updated parameters and behavior tree have not yet been exercised in simulation.
-- Rebuild/restart and verify parameter/XML loading, then test an unobstructed route, a temporary obstacle that can be routed around, a route requiring a short reverse maneuver, a transient first-attempt failure followed by mission-layer retry, and a truly blocked waypoint that must end as an explicit command failure without being skipped.
+- The policy/configuration changes require a fresh build and simulation run before relying on them operationally.
+- Verify parameter/XML loading; test an unobstructed route, temporary obstacle, 1 m backup, same-target retry, return to last reached point, continuation, and a final blocked waypoint that ends as mission failure.
 - Monitor actual command velocities, progress-checker resets, planner/controller failures, and controller loop-rate warnings. The loop-rate warnings may indicate simulation/CPU scheduling load; do not further loosen stall detection or increase MPPI workload without measurement.

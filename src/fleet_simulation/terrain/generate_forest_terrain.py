@@ -33,7 +33,7 @@ Z /= Z.max()
 
 # Vertical offset applied to every generated tree base (meters).
 # Use 0.0 for exact terrain-surface placement.
-TREE_BASE_OFFSET = 0.0
+TREE_BASE_OFFSET = -0.3
 
 
 def terrain_height_at(x, y, field=Z):
@@ -87,7 +87,7 @@ def update_forest_world_tree_heights(world_file="src/fleet_simulation/worlds/for
         text = f.read()
 
     pattern = re.compile(
-        r"(<include><name>.*?</name><uri>model://(?:pine|oak)_tree</uri><pose>)(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+0 0 0\.000000</pose></include>"
+        r"(<include><name>.*?</name><uri>model://(?:pine_tree|pine_tree_small|pine_tree_medium|oak_tree)</uri><pose>)(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+0 0 0\.000000</pose></include>"
     )
 
     def repl(match):
@@ -186,8 +186,8 @@ update_forest_world_tree_heights()
 # Keep the mesh generation output quiet, but leave the terrain-aware tree logic in
 # the file so the world SDF can be generated from the mapping function directly.
 #
-# Important: tree XY layout in forest.sdf.in is deterministic and static. Running
-# this script updates tree Z values from terrain; it does not randomize per run.
+# Important: tree XY layout and pine size variants are static in forest.sdf.in.
+# Running this script updates tree Z values from terrain; it does not alter XY.
 
 # Robot spawn 10 cm above terrain at (0, 0)
 SPAWN_Z = terrain_height_at(0.0, 0.0) * HEIGHT + 0.10

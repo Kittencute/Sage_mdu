@@ -67,15 +67,19 @@ def _valid_mask(
     range_sq = x**2 + y**2 + z**2
     beyond_blind = range_sq > min_range_sq
  
-    # Remove points belonging to the robot itself.
-    # Coordinates are relative to lidar_link.
+    # Remove chassis returns in lidar_link coordinates. The vertical bounds
+    # track the base footprint when the sensor mounting height changes.
+    lidar_z = 0.80
+    base_height = 0.33
+    chassis_bottom = -lidar_z
+    chassis_top = base_height - lidar_z
     inside_robot = (
         (x >= -0.60)
         & (x <= 0.40)
         & (y >= -0.45)
         & (y <= 0.45)
-        & (z >= -0.55)
-        & (z <= -0.05)
+        & (z >= chassis_bottom)
+        & (z <= chassis_top)
     )
  
     mask = finite & nonzero & beyond_blind & ~inside_robot

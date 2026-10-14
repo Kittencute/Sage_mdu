@@ -13,4 +13,4 @@ wheel:
   separation: 0.69
 lidar:
   x: 0.10
-  z: 0.20
+  z: 0.47

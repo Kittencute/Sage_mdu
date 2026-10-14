@@ -1,6 +1,6 @@
 """Unit tests for geodetic-to-ENU coordinate conversion."""
 
-from fleet_common.geodesy import enu_to_llh, llh_to_enu
+from fleet_common.geodesy import enu_to_llh, enu_to_map, llh_to_enu, map_to_enu
 
 # Datum used in SAGE simulation (forest world origin)
 DATUM_LAT = 47.397742
@@ -38,3 +38,19 @@ class TestLlhToEnu:
         )
         assert abs(actual_latitude - latitude) < 1e-9
         assert abs(actual_longitude - longitude) < 1e-9
+
+
+class TestMapEnuRotation:
+    def test_zero_offset_preserves_enu_axes(self):
+        assert map_to_enu(2.0, 3.0) == (2.0, 3.0)
+        assert enu_to_map(2.0, 3.0) == (2.0, 3.0)
+
+    def test_ninety_degree_map_offset_rotates_axes(self):
+        from math import pi
+
+        east, north = map_to_enu(1.0, 0.0, pi / 2)
+        assert abs(east) < 1e-9
+        assert abs(north - 1.0) < 1e-9
+        x, y = enu_to_map(east, north, pi / 2)
+        assert abs(x - 1.0) < 1e-9
+        assert abs(y) < 1e-9

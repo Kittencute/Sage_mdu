@@ -30,7 +30,7 @@ from sensor_msgs.msg import NavSatFix, NavSatStatus
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
 from fleet_common import signals
-from fleet_common.geodesy import llh_to_enu
+from fleet_common.geodesy import llh_to_enu, enu_to_map
 from fleet_common.params import declare
 from fleet_common.qos import latched_qos
 from fleet_common.waypoint_geojson import build_waypoints_geojson
@@ -83,6 +83,9 @@ class _Mission:
     navigation: _Navigation | None = None
     waypoint_retries: int = 0
     retry_after: Time | None = None
+    last_reached_point: int = 0
+    backtrack_pending: bool = False
+    resume_command_index: int | None = None
     hold_until: Time | None = None
     deadline: Time | None = None
     overdue: str = ""
@@ -158,6 +161,22 @@ class GroundMissionServer(Node):
             0.0,
             30.0,
         )
+        self._map_yaw_offset_deg = declare(
+            self,
+            "map_yaw_offset_deg",
+            Parameter.Type.DOUBLE,
+            "Counter-clockwise yaw from geographic east to map +X, in degrees",
+            -180.0,
+            180.0,
+            "0 for an ENU-aligned map; set only from measured axis calibration",
+        )
+        self._continue_after_waypoint_failure = declare(
+            self,
+            "continue_after_waypoint_failure",
+            Parameter.Type.BOOL,
+            "After retries, mark a failed waypoint and try the next waypoint",
+            constraints="explicitly reports the failed command; does not apply to the last waypoint",
+        )
         self._saved_home = declare(
             self,
             "saved_home",
@@ -198,7 +217,9 @@ class GroundMissionServer(Node):
         self.create_service(Trigger, "get_current_point", self._on_get_current_point)
         self.create_subscription(String, "add_mission_waypoint", self._on_add_waypoint, 10)
         self.create_service(Trigger, "get_home_point", self._on_get_home_point)
-        self._foxglove_mission_input = FoxgloveMissionInput(self)
+        self._foxglove_mission_input = FoxgloveMissionInput(
+            self, math.radians(self._map_yaw_offset_deg)
+        )
         self.create_subscription(Bool, "teleop_takeover", self._on_takeover, latched_qos())
         self.create_subscription(NavSatFix, self._datum_topic, self._on_datum, latched_qos())
         self.create_subscription(
@@ -552,6 +573,13 @@ class GroundMissionServer(Node):
         self._publish_state(mission, MissionState.MISSION_RUNNING)
     def _navigate(self, mission: _Mission) -> None:
         if mission.navigation is None:
+            if mission.backtrack_pending:
+                self.get_logger().warning(
+                    f"returning to last reached mission point {mission.last_reached_point} "
+                    "before continuing"
+                )
+                mission.navigation = self._send_goal(mission, mission.last_reached_point)
+                return
             if mission.retry_after is not None:
                 if self._now() < mission.retry_after:
                     return
@@ -568,6 +596,17 @@ class GroundMissionServer(Node):
         if status not in TERMINAL_GOAL_STATUSES:
             return
         mission.navigation = None
+        if mission.backtrack_pending:
+            if status != GoalStatus.STATUS_SUCCEEDED:
+                raise MissionError(
+                    "failed to return to the last reached mission point before continuing"
+                )
+            mission.backtrack_pending = False
+            mission.index = mission.resume_command_index
+            mission.resume_command_index = None
+            self.get_logger().info("backtrack complete; resuming mission at next planned target")
+            self._start_command(mission)
+            return
         command = mission.plan.commands[mission.index]
         if status != GoalStatus.STATUS_SUCCEEDED:
             if (
@@ -585,6 +624,38 @@ class GroundMissionServer(Node):
                     f"({mission.waypoint_retries}/{self._waypoint_retry_limit} retries)"
                 )
                 return
+            if (
+                command.kind == MissionCommand.WAYPOINT
+                and status == GoalStatus.STATUS_ABORTED
+                and self._continue_after_waypoint_failure
+            ):
+                next_target = next(
+                    (
+                        index
+                        for index in range(mission.index + 1, len(mission.plan.commands))
+                        if mission.plan.commands[index].kind in POSITION_KINDS
+                    ),
+                    None,
+                )
+                if next_target is not None:
+                    self._set_status(mission, mission.index, MissionState.COMMAND_FAILED)
+                    for skipped in range(mission.index + 1, next_target):
+                        if mission.plan.commands[skipped].kind in INSTANT_KINDS:
+                            self._set_status(mission, skipped, MissionState.COMMAND_FINISHED)
+                    self.get_logger().error(
+                        f"waypoint command {command.id} failed after "
+                        f"{mission.waypoint_retries + 1} attempts; marking it failed, "
+                        f"backtracking to the last reached point, then continuing at "
+                        f"command {mission.plan.commands[next_target].id}"
+                    )
+                    mission.waypoint_retries = 0
+                    mission.retry_after = None
+                    mission.resume_command_index = next_target
+                    mission.backtrack_pending = True
+                    self._publish_geojson(
+                        mission, self._waypoints_before(mission, next_target)
+                    )
+                    return
             attempts = mission.waypoint_retries + 1
             retry_note = (
                 f" after {attempts} attempts"
@@ -596,11 +667,14 @@ class GroundMissionServer(Node):
                 f"navigate_to_pose ended with status {status}; target was not skipped"
             )
         if command.hold_s > 0.0:
+            mission.last_reached_point = mission.point_of[mission.index]
             mission.phase = Phase.HOLDING
             mission.hold_until = self._now() + Duration(seconds=command.hold_s)
             return
         self._complete_command(mission)
     def _complete_command(self, mission: _Mission) -> None:
+        if mission.index in mission.point_of:
+            mission.last_reached_point = mission.point_of[mission.index]
         mission.waypoint_retries = 0
         mission.retry_after = None
         self._set_status(mission, mission.index, MissionState.COMMAND_FINISHED)
@@ -730,7 +804,7 @@ class GroundMissionServer(Node):
         east, north, _ = llh_to_enu(
             latitude, longitude, 0.0, datum.latitude, datum.longitude, datum.altitude
         )
-        return east, north
+        return enu_to_map(east, north, math.radians(self._map_yaw_offset_deg))
     def _now(self) -> Time:
         return self.get_clock().now()
     def _set_deadline(self, mission: _Mission, seconds: float, overdue: str) -> None:
