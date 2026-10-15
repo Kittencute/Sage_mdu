@@ -11,11 +11,11 @@ Status: research software. The simulation is verified end to end; the physical T
 ## Recent development updates
 
 - **Forest simulation:** terrain generation keeps tree placements inside the 90 m × 90 m terrain and updates tree elevations to follow the generated heightmap. Small and medium pine model variants are available alongside the existing trees, and the forest world and Foxglove view use the updated scene.
-- **Navigation and obstacle handling:** the obstacle cloud is filtered relative to `base_link` from -0.5 m to +1.5 m before it is published; the wider raw cloud remains available for costmap clearing. The local and global inflation layers use a 0.6 m radius and 5.0 cost scaling. The behavior tree checks a valid route at 0.5 Hz and includes bounded backup, clearing, spin, and forward-nudge recovery actions.
+- **Navigation and obstacle handling:** ground segmentation publishes clouds in `base_footprint`, whose origin is at ground level (unlike the elevated `base_link`). The non-ground obstacle cloud is filtered from 0.0 m to +1.5 m in that frame; its input `minZ` stays wide at -1.5 m, and the separate raw cloud remains available for costmap ray-clearing. Points already classified as ground are not restored by this height filter, so root classification still requires validation. The behavior tree checks path validity at 1 Hz. Recovery attempts a bounded 1 m reverse, clears costmaps, makes one slower 90-degree turn, then replans even if the spin fails; the fallback includes a slow short forward nudge, still guarded by Collision Monitor.
 - **Missions and Foxglove:** mission handling supports ordered/unordered routes, adding and clearing waypoints, Home/return behavior, and mission drafts from map-frame Foxglove clicks. Failed mission legs can be tracked and recovered by the mission server.
 - **Positioning and setup:** geodesy and GNSS/map alignment were updated, and local setup notes cover machine-specific ROS domain and Gazebo partition values.
 
-Route stability, root traversal, mission backtracking, and controller timing still require scenario testing; a successful build does not verify those behaviors.
+The -1.0 m lower obstacle cutoff, route stability at 1 Hz, inflation tuning, root traversal, mission backtracking, and controller timing still require scenario testing. A successful build does not verify those behaviors. Recent runs show repeated Collision Monitor stops and MPPI failures; inspect the obstacle cloud at the stopped pose and validate low-obstacle safety before relying on this cutoff.
 
 ## Install
 

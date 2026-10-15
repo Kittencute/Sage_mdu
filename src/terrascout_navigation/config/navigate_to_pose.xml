@@ -9,8 +9,8 @@
       <PipelineSequence>
         <ControllerSelector selected_controller="{selected_controller}" default_controller="FollowPath" topic_name="controller_selector"/>
         <PlannerSelector selected_planner="{selected_planner}" default_planner="GridBased" topic_name="planner_selector"/>
-        <!-- Keep valid routes stable while checking for changes twice per second. -->
-        <RateController hz="0.5">
+        <!-- Check path validity and replan at 1 Hz when the current path is invalid. -->
+        <RateController hz="1.0">
           <RecoveryNode number_of_retries="1" name="ComputePathToPose">
             <Fallback>
               <ReactiveSequence>
@@ -29,11 +29,16 @@
           <Sequence name="RecoverAfterFollowFailure">
             <!-- Try a short reverse, but do not let a safety-blocked backup prevent replanning. -->
             <Fallback name="BackupOrContinueToReplan">
-              <BackUp backup_dist="1" backup_speed="0.15" time_allowance="5.0" error_code_id="{backup_code_id}"/>
+              <BackUp backup_dist="1.0" backup_speed="0.15" time_allowance="12.0" error_code_id="{backup_code_id}"/>
               <Wait wait_duration="0.1"/>
             </Fallback>
             <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="local_costmap/clear_entirely_local_costmap"/>
             <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>
+            <!-- Turn to expose a different heading to the planner before retrying. -->
+            <Fallback name="SpinOrContinueToReplan">
+              <Spin spin_dist="1.57" time_allowance="15.0"/>
+              <Wait wait_duration="0.1"/>
+            </Fallback>
             <!-- Replan to the same mission target after backing up. -->
             <ComputePathToPose goal="{goal}" path="{path}" planner_id="{selected_planner}" error_code_id="{compute_path_error_code}"/>
           </Sequence>
@@ -42,16 +47,15 @@
       <ReactiveFallback name="RecoveryFallback">
         <GoalUpdated/>
         <RoundRobin name="RecoveryActions">
-          <BackUp backup_dist="1.0" backup_speed="0.15" time_allowance="8.0" error_code_id="{backup_code_id}"/>
+          <BackUp backup_dist="1.0" backup_speed="0.15" time_allowance="12.0" error_code_id="{backup_code_id}"/>
           <Sequence name="ClearingActions">
             <ClearEntireCostmap name="ClearLocalCostmap-Subtree" service_name="local_costmap/clear_entirely_local_costmap"/>
             <ClearEntireCostmap name="ClearGlobalCostmap-Subtree" service_name="global_costmap/clear_entirely_global_costmap"/>
           </Sequence>
           <Wait wait_duration="2.0"/>
-          <!-- Turn a quarter rotation to seek a clear heading before nudging forward. -->
-          <Spin spin_dist="1.57" time_allowance="10.0"/>
-          <!-- If backup is blocked at a low root, try a short controlled forward nudge. -->
-          <DriveOnHeading dist_to_travel="0.25" speed="1.0" time_allowance="3.0"/>
+          <!-- Keep the fallback from accumulating repeated spins; the follow-failure sequence turns once. -->
+          <!-- If clear, try only a slow short forward nudge; Collision Monitor remains authoritative. -->
+          <DriveOnHeading dist_to_travel="0.25" speed="0.25" time_allowance="5.0"/>
         </RoundRobin>
       </ReactiveFallback>
     </RecoveryNode>

@@ -131,6 +131,37 @@ class TestMinRange:
         assert mask.sum() == 1
 
 
+class TestRobotSelfFilter:
+    def test_removes_upper_chassis_return(self):
+        # Chassis top is 0.455 m above base_footprint; lidar is at 0.80 m.
+        data, step = _make_cloud_data([(0.0, 0.0, -0.40)])
+        mask = _filter_points(data, step, min_range_sq=0.0)
+        assert mask.sum() == 0
+
+    def test_removes_lower_visual_chassis_return(self):
+        # The chassis visual mesh is offset 0.11 m below its collision box.
+        data, step = _make_cloud_data([(0.0, 0.0, -0.68)])
+        mask = _filter_points(data, step, min_range_sq=0.0)
+        assert mask.sum() == 0
+
+    def test_removes_wheel_or_underbody_return(self):
+        # Front-left wheel lower surface: coordinates relative to lidar_link.
+        data, step = _make_cloud_data([(0.195, 0.345, -0.79)])
+        mask = _filter_points(data, step, min_range_sq=0.0)
+        assert mask.sum() == 0
+
+    def test_keeps_ground_below_chassis_envelope(self):
+        # Keep returns below the chassis visual-mesh exclusion margin.
+        data, step = _make_cloud_data([(0.0, 0.0, -0.76)])
+        mask = _filter_points(data, step, min_range_sq=0.0)
+        assert mask.sum() == 1
+
+    def test_keeps_obstacle_outside_robot_outline(self):
+        data, step = _make_cloud_data([(0.50, 0.0, -0.40)])
+        mask = _filter_points(data, step, min_range_sq=0.0)
+        assert mask.sum() == 1
+
+
 # ---------------------------------------------------------------------------
 # Livox tag-based noise filtering
 # ---------------------------------------------------------------------------

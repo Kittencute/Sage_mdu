@@ -1,27 +1,32 @@
 /**:
   ros__parameters:
     use_imu_orientation: true
-    robot_frame: base_link
+    # Use the ground-level robot origin; base_link is raised 0.33 m above it.
+    robot_frame: base_footprint
     lidar_to_ground: -0.80
     transform_tolerance: 0.3
     cellSizeX: 1.0
     cellSizeY: 1.0
     cellSizeZ: 10.0
-    cellSizeZPhase2: 1.0
-    slopeThresholdDegrees: 30.0
-    groundInlierThreshold: 0.15
-    maxGroundHeightDeviation: 0.2
+    cellSizeZPhase2: 0.2
+    slopeThresholdDegrees: 20.0
+    # Retain the baseline plane-fit tolerance so low root/terrain returns can
+    # remain ground; obstacle_min_height separately filters the published cloud.
+    groundInlierThreshold: 0.07
+    maxGroundHeightDeviation: 0.10
+
     centroidSearchRadius: 5.0
     maxX: 25.0
     minX: -25.0
     maxY: 25.0
     minY: -25.0
     maxZ: 3.0
-    minZ: -1.0
+    minZ: -1.5
     # Crop only published obstacle returns relative to base_link. raw_points
     # remains unmodified so Nav2 can still raytrace/clear the wider cloud.
-    obstacle_min_height: -0.5
+    # Height is now relative to base_footprint, whose origin is at ground level.
+    obstacle_min_height: 0.10
     obstacle_max_height: 1.5
-    downsample: true
+    downsample: false
     downsample_resolution: 0.08
     show_benchmark: false

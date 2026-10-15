@@ -358,6 +358,36 @@ Without this, Nav2 does not consume keepout points even if server publishing wor
 
 ---
 
+## 7. TerraScout Forest Navigation Tuning
+
+Current experimental navigation settings are in:
+
+```text
+src/terrascout_navigation/config/ground_seg.yaml
+src/terrascout_navigation/config/nav2.yaml
+src/terrascout_navigation/config/navigate_to_pose.xml
+patches/ground_segmentation_ros2/tf-failure-stops-node.patch
+```
+
+### Robot-relative obstacle heights
+
+The segmentation node transforms LiDAR points into `base_footprint` and publishes the obstacle cloud in that frame. This frame is the ground-level robot origin; `base_link` is elevated 0.33 m above it. The obstacle filter keeps non-ground Z values from **0.0 m to +1.5 m** relative to `base_footprint`. The segmentation input crop remains wider (`minZ: -1.5 m`) so it does not discard valid returns first. The raw cloud is retained as the separate costmap clearing/raytracing source. Points classified as ground are removed before this height filter and cannot be recovered by lowering its minimum.
+
+Nav2's obstacle-layer min/max height checks happen after observations are transformed into each costmap's global frame (`map` or `odom`). Those source limits are intentionally wide; do not use them to implement a robot-relative height band. Collision Monitor uses `base_footprint` as its base frame to match the segmentation cloud and applies the matching 0.0 m / +1.5 m filter.
+
+Ground plane fitting uses the baseline `groundInlierThreshold` of 0.15 m; this tolerance can still classify near-plane root returns as ground. Validate `ground_points` and `obstacle_points` at a root and test low rocks/curbs with the `base_footprint` height reference before relying on this configuration.
+
+### Costmap inflation and replanning
+
+- Both inflation radii are 0.6 m, the smallest value previously accepted by the footprint validator (circumscribed footprint about 0.596 m).
+- Global cost scaling is 3.0; local cost scaling is 5.0. The lower global value makes costs decay more gradually through the inflation band, while the local layer keeps the steeper 5.0 decay for tighter tracking.
+- The behavior tree checks path validity at 1 Hz and computes a new path when the current path is invalid or the goal changes.
+- Follow failure recovery attempts a 1 m reverse at 0.15 m/s with a 12 s allowance, clears both costmaps, attempts one 90-degree turn, then replans even if the spin times out. The fallback has a wait and a slow 0.25 m forward nudge; Collision Monitor can still block motion.
+- The latest stuck run timed out on backup/spin and Collision Monitor blocked the nudge. It also reported controller rates as low as about 7 Hz against a 20 Hz target; extra retries alone are not a fix.
+
+These are configuration choices to evaluate, not confirmed performance improvements. Validate clear, narrow, blocked, and root-obstacle routes with Collision Monitor enabled. Compare costmaps and obstacle-cloud data before changing several values at once.
+
+
 ## 7. Runtime Support and Environment Setup
 
 These files are not keepout feature logic, but they must be valid for simulation/runtime verification:
@@ -518,7 +548,7 @@ The 2026-10-13 simulation log showed repeated `controller_server: Failed to make
 
 - Nav2 remains responsible for geometric obstacle avoidance and its behavior-tree recovery cycle. If Nav2 ultimately aborts a `WAYPOINT`, the mission server waits 2 seconds and retries the exact same target once by default (`waypoint_retry_limit: 1`, `waypoint_retry_delay_s: 2.0`). Both parameters are configurable at startup; retries are bounded to 0–3 and 0–30 seconds.
 - A successful retry finishes the original command normally. If both attempts are aborted and a later positional command exists, the mission marks the failed command, returns to the last reached point, then continues to the next planned positional command. It does not invent a substitute coordinate. If backtracking fails, or there is no later target, the mission ends as failed.
-- `continue_after_waypoint_failure` enables that bounded fallback. It runs only after Nav2 reports `STATUS_ABORTED` and the same-target retry is exhausted; cancellation does not trigger it. General Nav2 recoveries prioritize backup, then costmap clearing, waiting, and spin.
+- `continue_after_waypoint_failure` enables that bounded fallback. It runs only after Nav2 reports `STATUS_ABORTED` and the same-target retry is exhausted; cancellation does not trigger it. The current recovery uses a single contextual spin; the outer fallback uses backup, costmap clearing, wait, and a slow forward nudge without repeated spins.
 - `map_yaw_offset_deg` is a single fleet setting shared by simulation `map→odom` TF and mission/Foxglove GPS conversions. It defaults to 0 (the world is ENU with zero heading); only change it after measuring +X/+Y against known east/north motion. Do not compensate by rotating only the Foxglove camera.
 - The global costmap explicitly uses `map` and `base_link`; the rolling local costmap uses `odom` and `base_link`.
 

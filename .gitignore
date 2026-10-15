@@ -22,3 +22,5 @@ runs/
 .venv/
 .ruff_cache/
 /site.yaml
+
+src/terrascout_mission_tester/logs/*.log

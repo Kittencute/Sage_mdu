@@ -67,38 +67,33 @@ def _valid_mask(
     range_sq = x**2 + y**2 + z**2
     beyond_blind = range_sq > min_range_sq
  
-    # Remove chassis returns in lidar_link coordinates. The vertical bounds
-    # track the base footprint when the sensor mounting height changes.
-    lidar_z = 0.80
-    base_height = 0.33
-    chassis_bottom = -lidar_z
-    chassis_top = base_height - lidar_z
-    inside_robot = (
+    # Remove robot self-returns. Input coordinates are relative to lidar_link.
+    # Chassis collision box bounds are x=[-0.40, 0.20], y=+/-0.345,
+    # z=[-0.595, -0.345]; its visual mesh is offset 0.11 m down. The broad
+    # self-return box therefore extends to z=-0.75 m to include that mesh.
+    inside_chassis = (
         (x >= -0.60)
         & (x <= 0.40)
         & (y >= -0.45)
         & (y <= 0.45)
-        & (z >= chassis_bottom)
-        & (z <= chassis_top)
+        & (z >= -0.75)
+        & (z <= -0.05)
     )
+
+    # Four wheels are cylinders whose axes run along Y. Exclude each wheel's
+    # radial X/Z section and its physical width plus a small margin.
+    inside_wheels = np.zeros(n_points, dtype=bool)
+    for wheel_x in (-0.395, 0.195):
+        for wheel_y in (-0.345, 0.345):
+            wheel_section = (x - wheel_x) ** 2 + (z + 0.625) ** 2 <= 0.20**2
+            inside_wheels |= wheel_section & (np.abs(y - wheel_y) <= 0.09)
+
+    inside_robot = inside_chassis | inside_wheels
  
     mask = finite & nonzero & beyond_blind & ~inside_robot
  
     if has_tag:
-        mask &= (pts["tag"] & _LIVOX_NOISE_MASK) == 0   
-
-
-    # finite = np.isfinite(pts["x"]) & np.isfinite(pts["y"]) & np.isfinite(pts["z"])
-    # nonzero = (pts["x"] != 0.0) | (pts["y"] != 0.0) | (pts["z"] != 0.0)
-
-    # range_sq = pts["x"] ** 2 + pts["y"] ** 2 + pts["z"] ** 2
-    # beyond_blind = range_sq > min_range_sq
-
-    # mask = finite & nonzero & beyond_blind
-
-    # if has_tag:
-    #     mask &= (pts["tag"] & _LIVOX_NOISE_MASK) == 0
-
+        mask &= (pts["tag"] & _LIVOX_NOISE_MASK) == 0
     return mask
 
 

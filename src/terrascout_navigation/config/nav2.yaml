@@ -3,9 +3,10 @@
     ros__parameters:
       cycle_frequency: 5.0
       enable_stamped_cmd_vel: true
-      max_rotational_vel: 1.68
-      min_rotational_vel: 0.4
-      rotational_acc_lim: 3.2
+      # Recovery spins use a 90-degree target; limit rate/acceleration to avoid abrupt turns.
+      max_rotational_vel: 0.8
+      min_rotational_vel: 0.2
+      rotational_acc_lim: 1.5
   bt_navigator:
     ros__parameters:
       default_nav_to_pose_bt_xml: $(find-pkg-share terrascout_navigation)/config/navigate_to_pose.xml
@@ -34,7 +35,8 @@
         polygon_pub_topic: polygon_stop
         type: polygon
         visualize: true
-      base_frame_id: base_link
+      # Match the segmentation cloud's ground-level height reference.
+      base_frame_id: base_footprint
       cmd_vel_out_topic: cmd_vel_auto
       enable_stamped_cmd_vel: true
       observation_sources:
@@ -43,7 +45,7 @@
         # Obstacle points are published in base_link; use the requested vertical
         # band relative to the robot reference frame.
         max_height: 1.5
-        min_height: -0.5
+        min_height: 0.0
         source_timeout: 0.5
         topic: obstacle_points
         type: pointcloud
@@ -120,7 +122,7 @@
       progress_checker:
         plugin: nav2_controller::SimpleProgressChecker
         # Allow slow/cautious motion and brief replanning before declaring a stall.
-        movement_time_allowance: 8.0
+        movement_time_allowance: 15.0
         required_movement_radius: 0.25
         required_movement_angle: 0.25
   global_costmap:
@@ -132,8 +134,10 @@
         global_frame: map
         height: 100
         inflation_layer:
-          cost_scaling_factor: 5.0
-          inflation_radius: 0.6
+          # Slower decay keeps global routes farther from marked obstacles;
+          # local tracking uses a steeper decay for tighter passage.
+          cost_scaling_factor: 3.0
+          inflation_radius: 0.8
           plugin: nav2_costmap_2d::InflationLayer
         initial_transform_timeout: 30.0
         robot_base_frame: base_link
@@ -187,7 +191,7 @@
         robot_base_frame: base_link
         height: 20
         inflation_layer:
-          cost_scaling_factor: 5.0
+          cost_scaling_factor: 3.0
           inflation_radius: 0.6
           plugin: nav2_costmap_2d::InflationLayer
         initial_transform_timeout: 30.0
