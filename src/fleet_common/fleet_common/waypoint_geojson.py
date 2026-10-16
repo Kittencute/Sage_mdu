@@ -8,7 +8,16 @@ GRAY = "#9ca3af"
 DASH = "4 4"
 
 
-def build_waypoints_geojson(waypoints, current_index, failed=False, start_position=None, return_position=None, active=False,):
+def build_waypoints_geojson(
+    waypoints,
+    current_index,
+    failed=False,
+    start_position=None,
+    return_position=None,
+    active=False,
+    return_active=False,
+    mission_complete=False,
+):
     features = []
     coords = [[wp["lon"], wp["lat"]] for wp in waypoints]
 
@@ -41,8 +50,12 @@ def build_waypoints_geojson(waypoints, current_index, failed=False, start_positi
     if return_position is not None and coords:
         finish = [return_position["lon"], return_position["lat"]]
         if coords[-1] != finish:
-            # Return leg stays planned until all waypoints have been visited.
-            color = GREEN if current_index >= len(coords) and not failed else GRAY if failed else BLUE
+            color = (
+                GREEN if mission_complete
+                else ORANGE if return_active
+                else GRAY if failed
+                else BLUE
+            )
             features.append(_line([coords[-1], finish], color))
 
     for i, wp in enumerate(waypoints):
@@ -58,6 +71,26 @@ def build_waypoints_geojson(waypoints, current_index, failed=False, start_positi
                     "lon": str(wp["lon"]),
                 },
                 "style": {"color": color},
+            },
+        })
+    if return_position is not None:
+        home_color = (
+            GREEN if mission_complete
+            else ORANGE if return_active
+            else RED if failed
+            else BLUE
+        )
+        features.append({
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [return_position["lon"], return_position["lat"]]},
+            "properties": {
+                "name": "Home",
+                "metadata": {
+                    "status": "completed" if mission_complete else "active" if return_active else "failed" if failed else "pending",
+                    "lat": str(return_position["lat"]),
+                    "lon": str(return_position["lon"]),
+                },
+                "style": {"color": home_color},
             },
         })
     return json.dumps({"type": "FeatureCollection", "features": features})

@@ -695,6 +695,11 @@ class GroundMissionServer(Node):
     def _return_home(self, mission: _Mission) -> None:
         if mission.navigation is None:
             self.get_logger().info("navigating home after abort")
+            self._publish_geojson(
+                mission,
+                self._waypoints_before(mission, len(mission.plan.commands)),
+                return_active=True,
+            )
             mission.navigation = self._send_goal(mission, HOME_POINT)
             return
         if self._accepted_handle(mission.navigation) is not None:
@@ -721,7 +726,18 @@ class GroundMissionServer(Node):
         if command_status is not None:
             self._set_status(mission, index, command_status)
             current = self._waypoints_before(mission, index)
-            self._publish_geojson(mission, current, failed=current < len(mission.waypoints))
+            self._publish_geojson(
+                mission,
+                current,
+                failed=current < len(mission.waypoints),
+                mission_complete=mission_status == MissionState.MISSION_FINISHED,
+            )
+        elif mission_status == MissionState.MISSION_FINISHED:
+            self._publish_geojson(
+                mission,
+                len(mission.waypoints),
+                mission_complete=True,
+            )
         self._publish_state(mission, mission_status)
         conclude()
         result = ExecuteMission.Result()
@@ -841,13 +857,23 @@ class GroundMissionServer(Node):
         msg.not_ready_reason = self._not_ready_reason
         self._last_state = msg
         self._state_pub.publish(msg)
-    def _publish_geojson(self, mission: _Mission, current: int, failed: bool = False) -> None:
-        if not mission.waypoints:
-            return
+    def _publish_geojson(
+        self,
+        mission: _Mission,
+        current: int,
+        failed: bool = False,
+        return_active: bool = False,
+        mission_complete: bool = False,
+    ) -> None:
+        if not return_active and mission.index < len(mission.plan.commands):
+            return_active = (
+                mission.plan.commands[mission.index].kind == MissionCommand.HOME
+            )
         msg = GeoJSON()
         msg.geojson = build_waypoints_geojson(
             mission.waypoints, current, failed=failed, start_position=mission.start_position,
-            return_position={"lat": mission.plan.home.latitude, "lon": mission.plan.home.longitude}, active=not failed,
+            return_position={"lat": mission.plan.home.latitude, "lon": mission.plan.home.longitude},
+            active=not failed, return_active=return_active, mission_complete=mission_complete,
         )
         self._geojson_pub.publish(msg)
 def main() -> None:

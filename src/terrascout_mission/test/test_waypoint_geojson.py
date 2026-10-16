@@ -147,3 +147,41 @@ def test_first_waypoint_active():
 
     for point in points[1:]:
         assert point["properties"]["style"]["color"] == BLUE
+
+
+def test_home_is_orange_while_returning():
+    result = build_waypoints_geojson(
+        WAYPOINTS,
+        current_index=len(WAYPOINTS),
+        return_position={"lat": 47.397700, "lon": 8.545500},
+        return_active=True,
+    )
+    _, points, lines = _parse(result)
+    home = next(point for point in points if point["properties"]["name"] == "Home")
+
+    assert home["properties"]["style"]["color"] == ORANGE
+    assert home["properties"]["metadata"]["status"] == "active"
+    return_leg = next(
+        line for line in lines
+        if line["geometry"]["coordinates"][-1] == [8.545500, 47.397700]
+    )
+    assert return_leg["properties"]["style"]["color"] == ORANGE
+
+
+def test_home_is_green_when_mission_finishes():
+    result = build_waypoints_geojson(
+        WAYPOINTS,
+        current_index=len(WAYPOINTS),
+        return_position={"lat": 47.397700, "lon": 8.545500},
+        mission_complete=True,
+    )
+    _, points, lines = _parse(result)
+    home = next(point for point in points if point["properties"]["name"] == "Home")
+
+    assert home["properties"]["style"]["color"] == GREEN
+    assert home["properties"]["metadata"]["status"] == "completed"
+    return_leg = next(
+        line for line in lines
+        if line["geometry"]["coordinates"][-1] == [8.545500, 47.397700]
+    )
+    assert return_leg["properties"]["style"]["color"] == GREEN
