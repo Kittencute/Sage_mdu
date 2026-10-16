@@ -47,15 +47,19 @@
       <ReactiveFallback name="RecoveryFallback">
         <GoalUpdated/>
         <RoundRobin name="RecoveryActions">
-          <BackUp backup_dist="1.0" backup_speed="0.15" time_allowance="12.0" error_code_id="{backup_code_id}"/>
+          <Sequence name="BackupClearAndReplan">
+            <BackUp backup_dist="1.0" backup_speed="0.15" time_allowance="12.0" error_code_id="{backup_code_id}"/>
+            <ClearEntireCostmap name="ClearLocalCostmap-AfterBackup" service_name="local_costmap/clear_entirely_local_costmap"/>
+            <ClearEntireCostmap name="ClearGlobalCostmap-AfterBackup" service_name="global_costmap/clear_entirely_global_costmap"/>
+            <ComputePathToPose goal="{goal}" path="{path}" planner_id="{selected_planner}" error_code_id="{compute_path_error_code}"/>
+          </Sequence>
           <Sequence name="ClearingActions">
             <ClearEntireCostmap name="ClearLocalCostmap-Subtree" service_name="local_costmap/clear_entirely_local_costmap"/>
             <ClearEntireCostmap name="ClearGlobalCostmap-Subtree" service_name="global_costmap/clear_entirely_global_costmap"/>
           </Sequence>
           <Wait wait_duration="2.0"/>
-          <!-- Keep the fallback from accumulating repeated spins; the follow-failure sequence turns once. -->
-          <!-- If clear, try only a slow short forward nudge; Collision Monitor remains authoritative. -->
-          <DriveOnHeading dist_to_travel="0.25" speed="0.25" time_allowance="5.0"/>
+          <!-- Do not command a forward nudge here: PolygonStop may correctly
+            block it, causing DriveOnHeading to time out without progress. -->
         </RoundRobin>
       </ReactiveFallback>
     </RecoveryNode>

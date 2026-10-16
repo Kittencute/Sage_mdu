@@ -35,3 +35,11 @@ repositories:
     type: git
     url: https://github.com/PX4/PX4-Autopilot.git
     version: c72793619ee7b0a1b08458e6cccababfffc9d8ad
+  spatio_temporal_voxel_layer:
+    type: git
+    url: https://github.com/SteveMacenski/spatio_temporal_voxel_layer.git
+    version: f37544ef1b2b21623eacb0808c69b4cf912ac30f
+  FAST_LIO_ROS2:
+    type: git
+    url: https://github.com/Ericsii/FAST_LIO_ROS2.git
+    version: 2fffc570a25d0df172720bac034fbdb6a13d2162

@@ -1,0 +1,7 @@
+diff --git a/src/laserMapping.cpp b/src/laserMapping.cpp
+index d441261..9d5a63b 100644
+--- a/src/laserMapping.cpp
++++ b/src/laserMapping.cpp
+@@ -929,1 +929,1 @@
+-        sub_imu_ = this->create_subscription<sensor_msgs::msg::Imu>(imu_topic, 10, imu_cbk);
++        sub_imu_ = this->create_subscription<sensor_msgs::msg::Imu>(imu_topic, rclcpp::SensorDataQoS(), imu_cbk);

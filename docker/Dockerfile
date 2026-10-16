@@ -30,6 +30,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     python3-colcon-common-extensions \
     python3-scipy \
     "ros-${ROS_DISTRO}-ament-cmake-python" \
+    "ros-${ROS_DISTRO}-ament-cmake-vendor-package" \
     "ros-${ROS_DISTRO}-ament-package" \
     "ros-${ROS_DISTRO}-navigation2" \
     "ros-${ROS_DISTRO}-xacro" \
@@ -37,6 +38,12 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     "ros-${ROS_DISTRO}-foxglove-bridge" \
     "ros-${ROS_DISTRO}-foxglove-msgs" \
     "ros-${ROS_DISTRO}-mqtt-client" \
+    libopenvdb-dev \
+    libblosc-dev \
+    libboost-iostreams-dev \
+    libboost-thread-dev \
+    libtbb-dev \
+    zlib1g-dev \
     libgtest-dev \
     libnanoflann-dev \
     "ros-${ROS_DISTRO}-pcl-conversions" \
@@ -114,7 +121,15 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
     apt-get update && apt-get install -y --no-install-recommends \
-    "ros-${ROS_DISTRO}-ros-gz" && \
+    "ros-${ROS_DISTRO}-ros-gz" \
+    "ros-${ROS_DISTRO}-pcl-ros" \
+    libeigen3-dev \
+    libpcl-dev \
+    libomp-dev \
+    libapr1-dev \
+    libaprutil1-dev \
+    python3-dev \
+    "ros-${ROS_DISTRO}-ament-cmake-auto" && \
     rm -rf /var/lib/apt/lists/*
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \

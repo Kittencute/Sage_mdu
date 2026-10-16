@@ -8,6 +8,7 @@ ament_python_install_package(${PROJECT_NAME})
 
 install(PROGRAMS
   terrascout_navigation/gnss_shim.py
+  terrascout_navigation/scripts/compare_fast_lio_gt.py
   terrascout_navigation/lidar_filter.py
   terrascout_navigation/teleop_takeover.py
   terrascout_navigation/twist_stamper.py

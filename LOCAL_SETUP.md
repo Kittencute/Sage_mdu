@@ -154,7 +154,37 @@ These topics should also use the appropriate QoS configuration where required.
 
 ---
 
-## 5. Quick Checklist for a New Development PC
+## 5. Record and Compare FAST-LIO2 Odometry
+
+Use the `sim-record` target to record MCAP bags containing FAST-LIO2 odometry and Gazebo ground truth. The default `sim` target does not enable recording.
+
+From the workspace root, build and start the recording-enabled simulation:
+
+```sh
+make use TARGET=sim-record
+make build
+make up
+```
+
+Run the mission or route you want to evaluate while the simulation is running. To finish the recording, press **Ctrl+C** in the terminal running `make up` and wait for the stack to stop and the prompt to return. Alternatively, run `make down` from a second terminal. Do not kill the recorder/container forcefully; it needs to shut down normally to write the bag metadata.
+
+The bag is saved under `.sage/run/1/recordings/terrascout1/` for SAGE instance 1. Use the matching instance directory if you started with `SAGE_INSTANCE` set to another number. After the stack has stopped, run the comparison from the workspace root:
+
+```sh
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+BAG_DIR=$(find .sage/run/1/recordings/terrascout1 -name metadata.yaml -printf '%h\n' | sort | tail -n 1)
+test -n "$BAG_DIR" || { echo "No completed MCAP bag found"; exit 1; }
+python3 src/terrascout_navigation/terrascout_navigation/scripts/compare_fast_lio_gt.py "$BAG_DIR"
+```
+
+The comparison script is `compare_fast_lio_gt.py` (there is no `compare_odom_mcap.py` file). It reads `/terrascout1/fast_lio/odometry` and `/terrascout1/odom_gt`, then writes `fast_lio_error.csv` and position/orientation plots to `fast_lio_error_results/`. Its errors are relative trajectory drift after first-pose alignment, not absolute localization error.
+
+---
+
+**Mission route length:** the TerraScout mission server derives its maximum leg length from half the smaller global costmap dimension minus a 5 m margin. With the 100 m × 100 m global costmap, the limit is 45 m. A mission leg longer than that is rejected before navigation; split longer legs with intermediate waypoints rather than extending the limit beyond the global planning window.
+
+## 6. Quick Checklist for a New Development PC
 
 Before running the simulation on another computer on the same network:
 
@@ -222,7 +252,7 @@ This keeps the ROS 2 and Gazebo simulations separated between development comput
 
 ---
 
-## 6. Keepout-Zone Implementation Map
+## 7. Keepout-Zone Implementation Map
 
 Files changed for the keepout-zone implementation:
 

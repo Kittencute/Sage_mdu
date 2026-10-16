@@ -45,6 +45,29 @@ make down
 
 `make up` runs in the foreground. Gazebo opens with both robots, and every process of the `world`, `terrascout1`, `aeroscout1` and `station` units logs `ready`.
 
+### Record and compare FAST-LIO2 odometry
+
+Use the `sim-record` target to record simulation topics to MCAP, including FAST-LIO2 odometry and Gazebo ground truth (`/terrascout1/fast_lio/odometry` and `/terrascout1/odom_gt`). Recording is not enabled by the default `sim` target.
+
+```sh
+# Select and start the recording-enabled simulation
+make use TARGET=sim-record
+make up
+```
+
+Let the robot run the route you want to evaluate. To stop, either press **Ctrl+C** in the terminal running `make up` and wait for it to return to the prompt, or run `make down` from another terminal. Wait for the stack and recorder to stop normally so the bag metadata is written. Bags are stored under `.sage/run/1/recordings/terrascout1/` (the `1` is the SAGE instance; change it if using `SAGE_INSTANCE` other than 1). Rosbag splits output at 60-second intervals.
+
+After stopping, source ROS and the workspace, then run the comparison script on the bag directory containing `metadata.yaml`:
+
+```sh
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+BAG_DIR=$(find .sage/run/1/recordings/terrascout1 -name metadata.yaml -printf '%h\n' | sort | tail -n 1)
+python3 src/terrascout_navigation/terrascout_navigation/scripts/compare_fast_lio_gt.py "$BAG_DIR"
+```
+
+The script writes `fast_lio_error.csv` and position/orientation plots to `fast_lio_error_results/` by default; override that directory with `--out-dir`. The filename is `compare_fast_lio_gt.py`—there is no separate `compare_odom_mcap.py` in this workspace. The comparison aligns the trajectories at the first matched sample, so its errors measure relative drift, not absolute localization accuracy.
+
 ### Watch in Foxglove
 
 In [Foxglove](https://foxglove.dev), choose Open connection, then Foxglove WebSocket, enter the unit's address, and import the matching layout from `.sage/render/sim.1/layouts/`.

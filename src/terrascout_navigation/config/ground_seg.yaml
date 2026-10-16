@@ -22,9 +22,8 @@
     minY: -25.0
     maxZ: 3.0
     minZ: -1.5
-    # Crop only published obstacle returns relative to base_link. raw_points
+    # Crop only published obstacle returns relative to base_footprint. raw_points
     # remains unmodified so Nav2 can still raytrace/clear the wider cloud.
-    # Height is now relative to base_footprint, whose origin is at ground level.
     obstacle_min_height: 0.10
     obstacle_max_height: 1.5
     downsample: false

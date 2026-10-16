@@ -25,13 +25,15 @@
         enabled: true
         points: '[[1.15, 0.50], [1.15, -0.50], [-0.615, -0.50], [-0.615, 0.50]]'
         polygon_pub_topic: polygon_slowdown
-        slowdown_ratio: 0.3
+        # Testing: let the controller retain 60% speed inside the outer zone.
+        slowdown_ratio: 0.6
         type: polygon
         visualize: true
       PolygonStop:
         action_type: stop
         enabled: true
-        points: '[[0.615, 0.50], [0.615, -0.50], [-0.615, -0.50], [-0.615, 0.50]]'
+        # Testing: keep a small margin outside the 0.465 x 0.35 m footprint.
+        points: '[[0.51, 0.39], [0.51, -0.39], [-0.51, -0.39], [-0.51, 0.39]]'
         polygon_pub_topic: polygon_stop
         type: polygon
         visualize: true
@@ -42,10 +44,9 @@
       observation_sources:
       - pointcloud
       pointcloud:
-        # Obstacle points are published in base_link; use the requested vertical
-        # band relative to the robot reference frame.
+        # Match the segmentation obstacle band relative to base_footprint.
         max_height: 1.5
-        min_height: 0.0
+        min_height: 0.1
         source_timeout: 0.5
         topic: obstacle_points
         type: pointcloud
@@ -128,120 +129,176 @@
   global_costmap:
     global_costmap:
       ros__parameters:
-        always_send_full_costmap: true
+        always_send_full_costmap: false
         footprint: '[[0.465, 0.35], [0.465, -0.35], [-0.465, -0.35], [-0.465, 0.35]]'
         footprint_padding: 0.01
         global_frame: map
         height: 100
         inflation_layer:
-          # Slower decay keeps global routes farther from marked obstacles;
-          # local tracking uses a steeper decay for tighter passage.
-          cost_scaling_factor: 3.0
+          # Narrow the soft-cost band modestly; keep padding beyond the robot's
+          # ~0.58 m circumscribed footprint radius.
+          cost_scaling_factor: 6.0
           inflation_radius: 0.8
           plugin: nav2_costmap_2d::InflationLayer
         initial_transform_timeout: 30.0
         robot_base_frame: base_link
-        obstacle_layer:
-          max_obstacle_height: 1000.0
-          min_obstacle_height: -1000.0
+        stvl_layer:
+          plugin: spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer
+          enabled: true
+          # Expire stale obstacle voxels after 3 s; live detections refresh them.
+          voxel_decay: 3.0
+          decay_model: 0
+          voxel_size: 0.1
+          track_unknown_space: false
+          mark_threshold: 0
+          update_footprint_enabled: true
+          combination_method: 1
+          origin_z: 0.0
+          publish_voxel_map: false
+          transform_tolerance: 0.5
+          mapping_mode: false
           observation_sources: obstacle_mark obstacle_clear keepout_mark
-          obstacle_clear:
-            clearing: true
-            data_type: PointCloud2
-            expected_update_rate: 0.5
-            marking: false
-            max_obstacle_height: 1000.0
-            min_obstacle_height: -1000.0
-            raytrace_max_range: 25.0
-            topic: /<robot_namespace>/raw_points
           obstacle_mark:
             data_type: PointCloud2
-            expected_update_rate: 0.5
+            topic: /<robot_namespace>/obstacle_points
             marking: true
             clearing: false
-            # Nav2 applies these limits after transforming points into the
-            # costmap global frame, so keep them wide. The incoming cloud is
-            # already cropped relative to base_link by ground_segmentation.
-            max_obstacle_height: 1000.0
+            obstacle_range: 20.0
+            # This source receives obstacle_points already height-filtered in
+            # base_footprint. These bounds are global-frame Z, not robot-relative.
             min_obstacle_height: -1000.0
-            obstacle_max_range: 20.0
-            topic: /<robot_namespace>/obstacle_points
-          keepout_mark:
+            max_obstacle_height: 1000.0
+            expected_update_rate: 0.0
+            observation_persistence: 0.0
+            filter: voxel
+            # Match local filtering to suppress low-density stray returns.
+            voxel_min_points: 3
+            clear_after_reading: true
+          obstacle_clear:
+            enabled: true
             data_type: PointCloud2
-            expected_update_rate: 2.0
-            max_obstacle_height: 1000.0
-            min_obstacle_height: -1000.0
-            obstacle_max_range: 1000.0
+            topic: /<robot_namespace>/raw_points
+            marking: false
+            clearing: true
+            min_z: -1.0
+            max_z: 3.0
+            horizontal_fov_angle: 6.28
+            vertical_fov_angle: 1.03
+            vertical_fov_padding: 0.05
+            decay_acceleration: 1.0
+            model_type: 1
+          keepout_mark:
+            enabled: true
+            data_type: PointCloud2
             topic: /<robot_namespace>/keepout_obstacle_points
-          plugin: nav2_costmap_2d::ObstacleLayer
+            marking: true
+            clearing: false
+            obstacle_range: 1000.0
+            # Ground segmentation is the robot-relative height gate; do not
+            # apply a 1.5 m cutoff here after transforming to odom.
+            min_obstacle_height: -1000.0
+            max_obstacle_height: 1000.0
+            expected_update_rate: 0.0
+            observation_persistence: 0.0
+            filter: voxel
+            voxel_min_points: 1
+            clear_after_reading: true
         plugins:
-        - obstacle_layer
+        - stvl_layer
         - inflation_layer
-        publish_frequency: 5.0
+        publish_frequency: 2.0
         resolution: 0.1
         rolling_window: true
         width: 100
   local_costmap:
     local_costmap:
       ros__parameters:
-        always_send_full_costmap: true
+        always_send_full_costmap: false
         footprint: '[[0.465, 0.35], [0.465, -0.35], [-0.465, -0.35], [-0.465, 0.35]]'
         footprint_padding: 0.01
         global_frame: odom
         robot_base_frame: base_link
-        height: 20
+        height: 15
         inflation_layer:
-          cost_scaling_factor: 3.0
+          # Faster cost falloff with distance; physical safety radius unchanged.
+          cost_scaling_factor: 5.0
           inflation_radius: 0.6
           plugin: nav2_costmap_2d::InflationLayer
         initial_transform_timeout: 30.0
-        obstacle_layer:
-          max_obstacle_height: 1000.0
-          min_obstacle_height: -1000.0
+        stvl_layer:
+          plugin: spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer
+          enabled: true
+          # Expire stale local obstacle voxels after 3 s; live detections refresh them.
+          voxel_decay: 3.0
+          decay_model: 0
+          voxel_size: 0.1
+          track_unknown_space: false
+          mark_threshold: 0
+          update_footprint_enabled: true
+          combination_method: 1
+          origin_z: 0.0
+          publish_voxel_map: false
+          transform_tolerance: 0.5
+          mapping_mode: false
           observation_sources: obstacle_mark obstacle_clear keepout_mark
-          obstacle_clear:
-            clearing: true
-            data_type: PointCloud2
-            expected_update_rate: 0.5
-            marking: false
-            max_obstacle_height: 1000.0
-            min_obstacle_height: -1000.0
-            raytrace_max_range: 15.0
-            topic: /<robot_namespace>/raw_points
           obstacle_mark:
             data_type: PointCloud2
-            expected_update_rate: 0.5
+            topic: /<robot_namespace>/obstacle_points
             marking: true
             clearing: false
-            # Height limits are evaluated in the costmap global frame, not
-            # relative to base_link; accept the segmented base_link cloud here.
-            max_obstacle_height: 1000.0
+            obstacle_range: 10.0
+            # Segmentation already filters obstacle height in the robot frame;
+            # keep this broad because the cloud is transformed into odom here.
             min_obstacle_height: -1000.0
-            obstacle_max_range: 12.0
-            topic: /<robot_namespace>/obstacle_points
-          keepout_mark:
+            max_obstacle_height: 1000.0
+            expected_update_rate: 0.0
+            observation_persistence: 0.0
+            filter: voxel
+            # Match global filtering while rejecting only isolated returns.
+            voxel_min_points: 4
+            clear_after_reading: true
+          obstacle_clear:
+            enabled: true
             data_type: PointCloud2
-            expected_update_rate: 2.0
-            max_obstacle_height: 1000.0
-            min_obstacle_height: -1000.0
-            obstacle_max_range: 200.0
+            topic: /<robot_namespace>/raw_points
+            marking: false
+            clearing: true
+            min_z: -1.0
+            max_z: 3.0
+            horizontal_fov_angle: 6.28
+            vertical_fov_angle: 1.03
+            vertical_fov_padding: 0.05
+            decay_acceleration: 1.0
+            model_type: 1
+          keepout_mark:
+            enabled: true
+            data_type: PointCloud2
             topic: /<robot_namespace>/keepout_obstacle_points
-          plugin: nav2_costmap_2d::ObstacleLayer
+            marking: true
+            clearing: false
+            obstacle_range: 200.0
+            min_obstacle_height: -1000.0
+            max_obstacle_height: 1000.0
+            expected_update_rate: 0.0
+            observation_persistence: 0.0
+            filter: voxel
+            voxel_min_points: 1
+            clear_after_reading: true
         plugins:
-        - obstacle_layer
+        - stvl_layer
         - inflation_layer
         publish_frequency: 1.5
-        resolution: 0.05
+        resolution: 0.1
         rolling_window: true
-        width: 20
+        width: 15
   planner_server:
     ros__parameters:
       GridBased:
-        cost_penalty: 4.0
+        cost_penalty: 3.0
         lattice_filepath: $(find-pkg-share terrascout_navigation)/config/diff_lattice.json
-        non_straight_penalty: 1.5
+        non_straight_penalty: 1.2
         plugin: nav2_smac_planner::SmacPlannerLattice
-        rotation_penalty: 2.0
+        rotation_penalty: 1.5
         tolerance: 0.5
       expected_planner_frequency: 1.0
   velocity_smoother:
