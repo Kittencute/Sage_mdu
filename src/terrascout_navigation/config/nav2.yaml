@@ -20,21 +20,35 @@
       transform_tolerance: 0.5
   collision_monitor:
     ros__parameters:
-      PolygonSlow:
+      # Outer zone: reduce speed by 30% (retain 70%)
+      PolygonSlow30:
         action_type: slowdown
         enabled: true
-        points: '[[1.15, 0.50], [1.15, -0.50], [-0.615, -0.50], [-0.615, 0.50]]'
-        polygon_pub_topic: polygon_slowdown
-        # Testing: let the controller retain 60% speed inside the outer zone.
-        slowdown_ratio: 0.6
+        points: '[[1.50, 0.65], [1.50, -0.65], [-0.90, -0.65], [-0.90, 0.65]]'
+        polygon_pub_topic: polygon_slow30
+        slowdown_ratio: 0.7
+        min_points: 5
         type: polygon
         visualize: true
+
+      # Middle zone: reduce speed by 60% (retain 40%)
+      PolygonSlow60:
+        action_type: slowdown
+        enabled: true
+        points: '[[0.85, 0.45], [0.85, -0.45], [-0.60, -0.45], [-0.60, 0.45]]'
+        polygon_pub_topic: polygon_slow60
+        slowdown_ratio: 0.4
+        min_points: 5
+        type: polygon
+        visualize: true
+
+      # Inner zone: stop
       PolygonStop:
         action_type: stop
         enabled: true
-        # Testing: keep a small margin outside the 0.465 x 0.35 m footprint.
         points: '[[0.51, 0.39], [0.51, -0.39], [-0.51, -0.39], [-0.51, 0.39]]'
         polygon_pub_topic: polygon_stop
+        min_points: 5
         type: polygon
         visualize: true
       # Match the segmentation cloud's ground-level height reference.
@@ -51,8 +65,9 @@
         topic: obstacle_points
         type: pointcloud
       polygons:
-      - PolygonStop
-      - PolygonSlow
+        - PolygonSlow30
+        - PolygonSlow60
+        - PolygonStop
       source_timeout: 1.0
       state_topic: collision_monitor_state
       stop_pub_timeout: 2.0
@@ -138,7 +153,7 @@
           # Narrow the soft-cost band modestly; keep padding beyond the robot's
           # ~0.58 m circumscribed footprint radius.
           cost_scaling_factor: 6.0
-          inflation_radius: 0.8
+          inflation_radius: 1.0
           plugin: nav2_costmap_2d::InflationLayer
         initial_transform_timeout: 30.0
         robot_base_frame: base_link
@@ -206,6 +221,8 @@
         plugins:
         - stvl_layer
         - inflation_layer
+        # Global planning map; keep below local update rate to limit CPU load.
+        update_frequency: 3.0
         publish_frequency: 2.0
         resolution: 0.1
         rolling_window: true
@@ -222,7 +239,7 @@
         inflation_layer:
           # Faster cost falloff with distance; physical safety radius unchanged.
           cost_scaling_factor: 5.0
-          inflation_radius: 0.6
+          inflation_radius: 0.9
           plugin: nav2_costmap_2d::InflationLayer
         initial_transform_timeout: 30.0
         stvl_layer:
@@ -287,7 +304,9 @@
         plugins:
         - stvl_layer
         - inflation_layer
-        publish_frequency: 1.5
+        # Refresh the rolling obstacle map near the 10 Hz simulated LiDAR rate.
+        update_frequency: 8.0
+        publish_frequency: 5.0
         resolution: 0.1
         rolling_window: true
         width: 15

@@ -1,0 +1,17 @@
+diff --git a/src/IMU_Processing.hpp b/src/IMU_Processing.hpp
+index f35378f..ad64285 100644
+--- a/src/IMU_Processing.hpp
++++ b/src/IMU_Processing.hpp
+@@ -349,0 +350,12 @@
++    // Gazebo publishes transient IMU readings while the robot is settling after
++    // spawn. Do not use those samples to initialize gravity and gyro bias.
++    if (start_timestamp_ < 0.0)
++    {
++      start_timestamp_ = meas.lidar_beg_time;
++    }
++    if (meas.lidar_beg_time - start_timestamp_ < 1.0)
++    {
++      last_imu_ = meas.imu.back();
++      return;
++    }
++

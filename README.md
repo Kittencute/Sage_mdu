@@ -11,7 +11,7 @@ Status: research software. The simulation is verified end to end; the physical T
 ## Recent development updates
 
 - **Forest simulation:** terrain generation keeps tree placements inside the 90 m × 90 m terrain and updates tree elevations to follow the generated heightmap. Small and medium pine model variants are available alongside the existing trees, and the forest world and Foxglove view use the updated scene.
-- **Navigation and obstacle handling:** ground segmentation publishes clouds in `base_footprint`, whose origin is at ground level (unlike the elevated `base_link`). The non-ground obstacle cloud is filtered from 0.0 m to +1.5 m in that frame; its input `minZ` stays wide at -1.5 m, and the separate raw cloud remains available for costmap ray-clearing. Points already classified as ground are not restored by this height filter, so root classification still requires validation. The behavior tree checks path validity at 1 Hz. Recovery attempts a bounded 1 m reverse, clears costmaps, makes one slower 90-degree turn, then replans even if the spin fails; the fallback includes a slow short forward nudge, still guarded by Collision Monitor.
+- **Navigation and obstacle handling:** ground segmentation publishes clouds in `base_footprint`, whose origin is at ground level (unlike the elevated `base_link`). The non-ground obstacle cloud is filtered from 0.0 m to +1.5 m in that frame; its input `minZ` stays wide at -1.5 m, and the separate raw cloud remains available for costmap ray-clearing. Points already classified as ground are not restored by this height filter, so root classification still requires validation. Current experimental Nav2 tuning checks path validity at 2 Hz, updates/publishes local costmap at 8/5 Hz and global at 3/2 Hz, uses 0.9 m local and 1.0 m global inflation, and allows 1.0 m/s forward speed. Collision Monitor has outer 30%-slowdown, middle 60%-slowdown, and inner stop polygons. Validate behavior and controller timing in simulation before relying on these experimental settings.
 - **Missions and Foxglove:** mission handling supports ordered/unordered routes, adding and clearing waypoints, Home/return behavior, and mission drafts from map-frame Foxglove clicks. Failed mission legs can be tracked and recovered by the mission server.
 - **Positioning and setup:** geodesy and GNSS/map alignment were updated, and local setup notes cover machine-specific ROS domain and Gazebo partition values.
 
@@ -57,16 +57,18 @@ make up
 
 Let the robot run the route you want to evaluate. To stop, either press **Ctrl+C** in the terminal running `make up` and wait for it to return to the prompt, or run `make down` from another terminal. Wait for the stack and recorder to stop normally so the bag metadata is written. Bags are stored under `.sage/run/1/recordings/terrascout1/` (the `1` is the SAGE instance; change it if using `SAGE_INSTANCE` other than 1). Rosbag splits output at 60-second intervals.
 
-After stopping, source ROS and the workspace, then run the comparison script on the bag directory containing `metadata.yaml`:
+After stopping, source ROS and the workspace, then run the comparison script on the bag directory containing `metadata.yaml`. Supply the mission and ordering labels used for the run to identify its artifacts:
 
 ```sh
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 BAG_DIR=$(find .sage/run/1/recordings/terrascout1 -name metadata.yaml -printf '%h\n' | sort | tail -n 1)
-python3 src/terrascout_navigation/terrascout_navigation/scripts/compare_fast_lio_gt.py "$BAG_DIR"
+python3 src/terrascout_navigation/terrascout_navigation/scripts/compare_fast_lio_gt.py "$BAG_DIR" --mission 1 --mode ordered --show-trajectory
 ```
 
-The script writes `fast_lio_error.csv` and position/orientation plots to `fast_lio_error_results/` by default; override that directory with `--out-dir`. The filename is `compare_fast_lio_gt.py`—there is no separate `compare_odom_mcap.py` in this workspace. The comparison aligns the trajectories at the first matched sample, so its errors measure relative drift, not absolute localization accuracy.
+The script writes a grouped set of four files to `fast_lio_error_results/`: timestamped error CSV, position and orientation error plots, and a FAST-LIO-versus-ground-truth route overlay. `--mission` accepts 1–4, `--mode` accepts `ordered` or `unordered`, and `--show-trajectory` opens the route plot interactively. Filenames use Swedish local time (Europe/Stockholm); rosbag folder timestamps are treated as UTC and converted. The filename is `compare_fast_lio_gt.py`—there is no separate `compare_odom_mcap.py` in this workspace. The comparison aligns trajectories at the first matched sample, so its errors measure relative drift, not absolute localization accuracy. Mission and mode labels are supplied by the operator and are not inferred from the bag.
+
+The interactive tester in `src/terrascout_mission_tester/terrascout_menu.py` has four route presets and uses `waypoints.json`. WP7–WP20 are generated local simulation points; verify them in the world before use. Consecutive legs in the current presets were checked to stay below 44 m, leaving margin under the mission server's 45 m leg limit.
 
 ### Watch in Foxglove
 

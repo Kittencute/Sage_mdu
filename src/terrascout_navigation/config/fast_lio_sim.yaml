@@ -6,7 +6,8 @@
       time_sync_en: false
       time_offset_lidar_to_imu: 0.0
     preprocess:
-      # lidar_type 5 is the selected fork's generic PointCloud2 input; no per-point time field is required.
+      # Gazebo's organized cloud has no point time; FAST-LIO estimates offsets
+      # from each point's column using scan_rate.
       lidar_type: 5
       scan_line: 40
       scan_rate: 10
@@ -27,8 +28,8 @@
       fov_degree: 360.0
       det_range: 40.0
       extrinsic_est_en: false
-      # Sensor delta from the simulated LiDAR to IMU in scout.urdf.xacro.
-      extrinsic_T: [0.10, 0.0, 0.05]
+      # LiDAR relative to IMU in base_link: (0.10, 0, 0.47) - (0, 0, 0.15).
+      extrinsic_T: [0.10, 0.0, 0.32]
       extrinsic_R: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
     publish:
       path_en: true

@@ -9,8 +9,8 @@
       <PipelineSequence>
         <ControllerSelector selected_controller="{selected_controller}" default_controller="FollowPath" topic_name="controller_selector"/>
         <PlannerSelector selected_planner="{selected_planner}" default_planner="GridBased" topic_name="planner_selector"/>
-        <!-- Check path validity and replan at 1 Hz when the current path is invalid. -->
-        <RateController hz="1.0">
+        <!-- Check path validity and replan at 2 Hz when the current path is invalid. -->
+        <RateController hz="2.0">
           <RecoveryNode number_of_retries="1" name="ComputePathToPose">
             <Fallback>
               <ReactiveSequence>

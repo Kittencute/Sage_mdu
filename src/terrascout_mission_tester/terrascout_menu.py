@@ -15,6 +15,15 @@ ROOT = Path(__file__).resolve().parent
 NAMESPACE = os.environ.get('TERRASCOUT_NAMESPACE', 'terrascout1').strip('/')
 BASE = ['ros2', 'run', 'fleet_common', 'send_mission.py', '--namespace', NAMESPACE]
 LOG_DIR = ROOT / 'logs'
+MISSION_ROUTES = {
+    '1': ('Mission 1', ['WP1', 'WP2', 'WP3', 'WP4', 'WP5', 'WP6']),
+    '2': ('Mission 2', ['WP7', 'WP8', 'WP9', 'WP10', 'WP11', 'WP12']),
+    '3': ('Mission 3', ['WP13', 'WP14', 'WP15', 'WP16', 'WP17', 'WP18']),
+    '4': ('Mission 4', [
+        'WP1', 'WP12', 'WP5', 'WP18', 'WP9', 'WP3', 'WP16', 'WP7', 'WP14', 'WP2',
+        'WP20', 'WP11', 'WP4', 'WP17', 'WP8', 'WP19', 'WP6', 'WP13', 'WP10', 'WP15',
+    ]),
+}
 
 
 def command_in_ros_environment(args):
@@ -98,11 +107,23 @@ def start_mission(args):
 
 
 def send_mission(waypoints, mode):
-    selected = list(waypoints.items())
+    print('\nSelect mission route:')
+    for key, (name, _) in MISSION_ROUTES.items():
+        print(f'  {key}. {name}')
+    mission_choice = input('Mission [1]: ').strip() or '1'
+    if mission_choice not in MISSION_ROUTES:
+        print('Cancelled: invalid mission')
+        return
+    mission_name, route = MISSION_ROUTES[mission_choice]
+    missing = [name for name in route if name not in waypoints]
+    if missing:
+        print(f'Cannot send {mission_name}; missing waypoints: {", ".join(missing)}')
+        return
+    selected = [(name, waypoints[name]) for name in route]
     if not selected:
         print('No test waypoints are configured.')
         return
-    print('\nMission waypoints:', ' -> '.join(name for name, _ in selected))
+    print(f'\nSending {mission_name} ({mode}) with {len(selected)} waypoints.')
     print('\nFinal destination:')
     print('  1. Return to mission start (default)')
     print('  2. Saved Home')

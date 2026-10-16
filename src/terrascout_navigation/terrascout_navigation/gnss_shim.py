@@ -10,7 +10,7 @@ from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import NavSatFix
-from tf2_ros import StaticTransformBroadcaster, TransformBroadcaster
+from tf2_ros import StaticTransformBroadcaster
 
 from fleet_common import signals
 from fleet_common.params import declare
@@ -31,7 +31,6 @@ class GnssShimNode(Node):
 
         self.datum_pub = self.create_publisher(NavSatFix, "fixposition/datum", latched_qos())
 
-        self.tf_broadcaster = TransformBroadcaster(self)
         self.static_tf_broadcaster = StaticTransformBroadcaster(self)
 
         self._odom_sub = self.create_subscription(Odometry, "odom_gt", self._odom_cb, 10)
@@ -100,16 +99,6 @@ class GnssShimNode(Node):
 
     def _odom_cb(self, msg):
         stamp = msg.header.stamp
-
-        t = TransformStamped()
-        t.header.stamp = stamp
-        t.header.frame_id = FRAME_ODOM
-        t.child_frame_id = FRAME_ROOT
-        t.transform.translation.x = msg.pose.pose.position.x
-        t.transform.translation.y = msg.pose.pose.position.y
-        t.transform.translation.z = msg.pose.pose.position.z
-        t.transform.rotation = msg.pose.pose.orientation
-        self.tf_broadcaster.sendTransform(t)
 
         smooth = Odometry()
         smooth.header.stamp = stamp

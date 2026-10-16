@@ -139,7 +139,8 @@ build:
 	@git -C $(FAST_LIO_DIR) submodule update --init --recursive include/ikd-Tree \
 		|| { echo "build failed: operation: initialize FAST-LIO2 ikd-Tree submodule; cause: reported above" >&2; exit 1; }
 	@for patch in $$(find patches -name '*.patch' | sort); do \
-		repo=$(THIRD_PARTY_DIR)/$$(dirname $${patch#patches/}); \
+		rel=$${patch#patches/}; \
+		case "$$rel" in FAST_LIO_ROS2/*) repo=$(FAST_LIO_DIR) ;; *) repo=$(THIRD_PARTY_DIR)/$$(dirname "$$rel") ;; esac; \
 		if git -C $$repo apply --unidiff-zero --reverse --check $(CURDIR)/$$patch 2>/dev/null; then \
 			echo "Patch $$patch is already applied to $$repo"; \
 		else \

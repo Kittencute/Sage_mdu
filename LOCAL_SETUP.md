@@ -175,10 +175,14 @@ source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 BAG_DIR=$(find .sage/run/1/recordings/terrascout1 -name metadata.yaml -printf '%h\n' | sort | tail -n 1)
 test -n "$BAG_DIR" || { echo "No completed MCAP bag found"; exit 1; }
-python3 src/terrascout_navigation/terrascout_navigation/scripts/compare_fast_lio_gt.py "$BAG_DIR"
+python3 src/terrascout_navigation/terrascout_navigation/scripts/compare_fast_lio_gt.py "$BAG_DIR" --mission 1 --mode ordered --show-trajectory
 ```
 
-The comparison script is `compare_fast_lio_gt.py` (there is no `compare_odom_mcap.py` file). It reads `/terrascout1/fast_lio/odometry` and `/terrascout1/odom_gt`, then writes `fast_lio_error.csv` and position/orientation plots to `fast_lio_error_results/`. Its errors are relative trajectory drift after first-pose alignment, not absolute localization error.
+The comparison script is `compare_fast_lio_gt.py` (there is no `compare_odom_mcap.py` file). It reads `/terrascout1/fast_lio/odometry` and `/terrascout1/odom_gt`, then writes a group of four timestamp-prefixed files in `fast_lio_error_results/`: error CSV, position error plot, orientation error plot, and route overlay. The filename prefix uses Swedish local time (Europe/Stockholm), converting rosbag folder timestamps from UTC. Use `--mission 1` through `--mission 4` and `--mode ordered` or `--mode unordered` to label the result filenames; these labels are operator-provided and cannot be inferred from the bag. `--show-trajectory` opens the overlay after saving it. Its errors are relative trajectory drift after first-pose alignment, not absolute localization error.
+
+The interactive tester at `src/terrascout_mission_tester/terrascout_menu.py` offers four route presets using `src/terrascout_mission_tester/waypoints.json`. WP7–WP20 are generated simulation coordinates, not recovered historical values. The current consecutive route legs were checked to remain below 44 m, within the mission server's 45 m per-leg limit; visually verify the points against the simulated terrain before running.
+
+Current experimental navigation tuning is in `src/terrascout_navigation/config/nav2.yaml` and `config/navigate_to_pose.xml`: local costmap update/publish rates are 8/5 Hz; global rates are 3/2 Hz; local/global inflation radii are 0.9/1.0 m; MPPI maximum forward speed is 1.0 m/s; and the behavior tree checks path validity at 2 Hz. Collision Monitor uses outer 30%-slowdown, middle 60%-slowdown, and inner stop polygons. Validate obstacle detection, slow/stop activation, controller timing, and recovery in simulation; these settings are experimental and cannot prevent collisions if obstacles are absent from the input cloud.
 
 ---
 

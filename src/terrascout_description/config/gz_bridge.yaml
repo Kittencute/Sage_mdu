@@ -3,11 +3,6 @@
   ros_type_name: sensor_msgs/msg/JointState
   gz_type_name: gz.msgs.Model
   direction: GZ_TO_ROS
-- ros_topic_name: <robot_namespace>/odom
-  gz_topic_name: <robot_namespace>/odom
-  ros_type_name: nav_msgs/msg/Odometry
-  gz_type_name: gz.msgs.Odometry
-  direction: GZ_TO_ROS
 - ros_topic_name: <robot_namespace>/odom_gt
   gz_topic_name: <robot_namespace>/odom_gt
   ros_type_name: nav_msgs/msg/Odometry

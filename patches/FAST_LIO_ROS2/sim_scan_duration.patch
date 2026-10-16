@@ -1,0 +1,12 @@
+diff --git a/src/laserMapping.cpp b/src/laserMapping.cpp
+index d441261..d441261 100644
+--- a/src/laserMapping.cpp
++++ b/src/laserMapping.cpp
+@@ -862,6 +862,7 @@
+         this->get_parameter_or<int>("preprocess.scan_line", p_pre->N_SCANS, 16);
+         this->get_parameter_or<int>("preprocess.timestamp_unit", p_pre->time_unit, US);
+         this->get_parameter_or<int>("preprocess.scan_rate", p_pre->SCAN_RATE, 10);
++        lidar_mean_scantime = 1.0 / (p_pre->SCAN_RATE > 0 ? p_pre->SCAN_RATE : 1);
+         this->get_parameter_or<int>("point_filter_num", p_pre->point_filter_num, 2);
+         this->get_parameter_or<bool>("feature_extract_enable", p_pre->feature_enabled, false);
+         this->get_parameter_or<bool>("runtime_pos_log_enable", runtime_pos_log, 0);

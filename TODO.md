@@ -31,10 +31,12 @@
   - [ ] Confirm low roots are ignored without chassis contact
   - [ ] Inspect cloud at stopped pose
 - [x] Costmap setup
-  - [x] Inflation radius: 0.6 m (global and local)
+  - [x] Experimental inflation radius: 1.0 m global / 0.9 m local
+  - [x] Experimental update/publish rates: global 3/2 Hz, local 8/5 Hz
   - [x] Scaling: 3.0 global / 5.0 local
+  - [x] Collision Monitor slow zones: retain 70% then 40%; inner stop zone
 - [ ] Costmap validation
-  - [ ] Test 0.6 m inflation
+  - [ ] Compare the experimental inflation/rates against baseline in simulation
   - [ ] Compare global/local scaling
   - [ ] Inspect Collision Monitor trigger
 - [x] Keepout zones
@@ -47,7 +49,7 @@
 ## Planning and control
 - [x] Planner configuration
   - [x] Obstacle sources
-  - [x] Path validity checks at 1 Hz
+  - [x] Path validity checks at 2 Hz
   - [x] Clear costmaps and replan
 - [ ] Route testing
   - [ ] Clear route
@@ -97,12 +99,15 @@
 - [x] Mission tester
   - [x] Container commands
   - [x] Sample waypoint menu
+  - [x] Four mission presets with consecutive legs under 44 m
+  - [x] FAST-LIO comparison CSV, error plots, route overlay, local-time filenames and optional mission/mode labels
 - [x] Teleoperation handoff
 - [ ] Mission shortcuts
 
 ## Reliability and documentation
 - [ ] Diagnose exit 137
 - [x] Setup documentation
+- [x] README and local setup notes reflect current FAST-LIO workflow and experimental Nav2 settings
 - [ ] Re-run and record navigation trials
   - [x] Crossed the low root with the -0.10 m cutoff
   - [ ] Diagnose later open-space stop at waypoint 5

@@ -55,7 +55,8 @@ def tf_edges(manifest: Manifest, process: Process) -> Iterator[tuple[str, str]]:
     if process.executable == "gnss_shim.py":
         odom = values.get("frame_odom", "odom")
         yield values.get("frame_global", "map"), odom
-        yield odom, values.get("frame_root", "vrtk_link")
+    if process.executable == "fast_lio_odom.py":
+        yield "odom", "vrtk_link"
     if process.executable == "odom_converter.py" and values.get("publish_tf", True):
         yield values.get("odom_frame", "odom"), values.get("base_frame", "base_link")
     if process.executable == "ros2_control_node":

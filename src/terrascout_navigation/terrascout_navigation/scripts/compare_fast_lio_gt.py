@@ -6,7 +6,11 @@ The reported errors measure relative trajectory drift, not absolute localization
 """
 
 import argparse
+import csv
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import re
+from zoneinfo import ZoneInfo
 
 try:
     import matplotlib
@@ -21,6 +25,8 @@ import rosbag2_py
 from rclpy.serialization import deserialize_message
 from rosidl_runtime_py.utilities import get_message
 from scipy.spatial.transform import Rotation, Slerp
+
+SWEDISH_TIMEZONE = ZoneInfo("Europe/Stockholm")
 
 
 def read_odometry_bag(bag_path: Path, topics: list[str]):
@@ -145,6 +151,43 @@ def save_plot(path: Path, seconds, series, ylabel: str, title: str):
     plt.close()
 
 
+def save_trajectory_plot(path: Path, gt_position, lio_position, show=False):
+    """Save an XY overlay and optionally display it interactively."""
+    if plt is None:
+        return
+    plt.figure(figsize=(8, 8))
+    plt.plot(gt_position[:, 0], gt_position[:, 1], label="Ground truth", linewidth=2)
+    plt.plot(lio_position[:, 0], lio_position[:, 1], label="FAST-LIO2 (aligned)", linewidth=1.5)
+    plt.scatter(*gt_position[0, :2], marker="o", label="Start")
+    plt.scatter(*gt_position[-1, :2], marker="x", label="Ground-truth end")
+    plt.xlabel("East / X [m]")
+    plt.ylabel("North / Y [m]")
+    plt.title("FAST-LIO2 trajectory vs ground truth")
+    plt.axis("equal")
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(path, dpi=160)
+    if show:
+        plt.show()
+    plt.close()
+
+
+def recording_start_datetime(bag_path: Path, override: str | None) -> datetime | None:
+    if override:
+        parsed = datetime.fromisoformat(override.replace("Z", "+00:00"))
+        return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
+    pattern = re.compile(r"rosbag2_(\d{4}_\d{2}_\d{2}-\d{2}_\d{2}_\d{2})")
+    for candidate in (bag_path.name, bag_path.parent.name):
+        match = pattern.search(candidate)
+        if match:
+            # rosbag2 folder timestamps are UTC; convert them to Swedish local time for output.
+            return datetime.strptime(match.group(1), "%Y_%m_%d-%H_%M_%S").replace(
+                tzinfo=timezone.utc
+            )
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("bag", type=Path, help="ROS 2 MCAP bag directory")
@@ -153,6 +196,22 @@ def main():
     parser.add_argument("--max-dt", type=float, default=0.03)
     parser.add_argument("--imu-height", type=float, default=0.48)
     parser.add_argument("--out-dir", type=Path, default=Path("fast_lio_error_results"))
+    parser.add_argument(
+        "--mission", choices=("1", "2", "3", "4"),
+        help="mission preset used for this recording (included in output filenames)",
+    )
+    parser.add_argument(
+        "--mode", choices=("ordered", "unordered"),
+        help="mission ordering mode used for this recording (included in output filenames)",
+    )
+    parser.add_argument(
+        "--show-trajectory", action="store_true",
+        help="display the FAST-LIO/ground-truth route overlay after saving it",
+    )
+    parser.add_argument(
+        "--recording-start",
+        help="UTC recording start (ISO-8601); otherwise inferred from rosbag2_YYYY_MM_DD-HH_MM_SS",
+    )
     args = parser.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -181,6 +240,16 @@ def main():
     horizontal_error = np.linalg.norm(position_error[:, :2], axis=1)
     spatial_error = np.linalg.norm(position_error, axis=1)
     seconds = t - t[0]
+    recording_start = recording_start_datetime(args.bag, args.recording_start)
+    if recording_start is None:
+        file_datetime = datetime.now(SWEDISH_TIMEZONE)
+        datetime_tag = file_datetime.strftime("%Y%m%dT%H%M%S")
+    else:
+        datetime_tag = recording_start.astimezone(SWEDISH_TIMEZONE).strftime(
+            "%Y%m%dT%H%M%S"
+        )
+    labels = [f"mission{args.mission}" if args.mission else None, args.mode]
+    output_tag = "_".join([datetime_tag, *(label for label in labels if label)])
 
     print("Relative trajectory drift after first-pose alignment:")
     for axis, name in enumerate(("x", "y", "z")):
@@ -191,28 +260,52 @@ def main():
         print_stats(name, rpy_error_deg[:, axis], "deg")
     print_stats("rotation angle", rotation_error_deg, "deg")
 
-    columns = np.column_stack(
-        [seconds, gt_imu_p, lio_p_aligned, position_error, horizontal_error, spatial_error,
-         rpy_error_deg, rotation_error_deg, nearest_dt]
-    )
-    np.savetxt(
-        args.out_dir / "fast_lio_error.csv", columns, delimiter=",", comments="",
-        header=("time_s,gt_imu_x_m,gt_imu_y_m,gt_imu_z_m,lio_aligned_x_m,lio_aligned_y_m,"
-                "lio_aligned_z_m,error_x_m,error_y_m,error_z_m,error_xy_m,error_3d_m,"
-                "error_roll_deg,error_pitch_deg,error_yaw_deg,error_rotation_deg,"
-                "nearest_gt_stamp_dt_s"),
-    )
+    headers = (
+        "datetime,elapsed_s,gt_imu_x_m,gt_imu_y_m,gt_imu_z_m,lio_aligned_x_m,"
+        "lio_aligned_y_m,lio_aligned_z_m,error_x_m,error_y_m,error_z_m,error_xy_m,"
+        "error_3d_m,error_roll_deg,error_pitch_deg,error_yaw_deg,error_rotation_deg,"
+        "nearest_gt_stamp_dt_s"
+    ).split(",")
+    with (args.out_dir / f"{output_tag}_fast_lio_error.csv").open(
+        "w", newline="", encoding="utf-8"
+    ) as stream:
+        writer = csv.writer(stream)
+        writer.writerow(headers)
+        for index, elapsed in enumerate(seconds):
+            timestamp = (
+                (recording_start + timedelta(seconds=float(t[index])))
+                .astimezone(SWEDISH_TIMEZONE)
+                .isoformat(timespec="milliseconds")
+                if recording_start is not None
+                else ""
+            )
+            writer.writerow([
+                timestamp, elapsed, *gt_imu_p[index], *lio_p_aligned[index],
+                *position_error[index], horizontal_error[index], spatial_error[index],
+                *rpy_error_deg[index], rotation_error_deg[index], nearest_dt[index],
+            ])
     save_plot(
-        args.out_dir / "position_error.png", seconds,
+        args.out_dir / f"{output_tag}_position_error.png", seconds,
         {"x": position_error[:, 0], "y": position_error[:, 1], "z": position_error[:, 2],
          "XY norm": horizontal_error},
         "Position error [m]", "FAST-LIO2 vs ground truth: position error",
     )
     save_plot(
-        args.out_dir / "orientation_error.png", seconds,
+        args.out_dir / f"{output_tag}_orientation_error.png", seconds,
         {"roll": rpy_error_deg[:, 0], "pitch": rpy_error_deg[:, 1], "yaw": rpy_error_deg[:, 2]},
         "Relative rotation error [deg]", "FAST-LIO2 vs ground truth: orientation error",
     )
+    save_trajectory_plot(
+        args.out_dir / f"{output_tag}_trajectory_comparison.png", gt_imu_p, lio_p_aligned,
+        show=args.show_trajectory,
+    )
+    if recording_start is None:
+        print("WARNING: no bag start datetime found; datetime is blank (use --recording-start).")
+    else:
+        print(
+            "CSV datetime is shown in Europe/Stockholm time, based on recording start "
+            f"{recording_start.astimezone(SWEDISH_TIMEZONE).isoformat()}"
+        )
     print(f"Saved results to {args.out_dir.resolve()}")
 
 
