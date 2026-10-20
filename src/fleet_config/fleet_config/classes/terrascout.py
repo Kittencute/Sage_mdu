@@ -428,6 +428,9 @@ def gnss_processes(unit: UnitContext, after: list[str]) -> list[Process]:
                     "datum_longitude": datum.lon,
                     "datum_altitude": datum.elevation,
                     "map_yaw_offset_deg": MAP_YAW_OFFSET_DEG,
+                    # Gazebo does not populate NavSatFix covariance; expose the
+                    # simulation's nominal 1 m horizontal uncertainty explicitly.
+                    "simulated_position_std_m": 1.0,
                 },
                 remaps=TF_REMAPS,
                 after=after,

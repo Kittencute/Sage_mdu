@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import math
 import sys
+import time
 try:
     from fleet_interfaces.msg import MissionCommand, MissionState
 except ModuleNotFoundError:
@@ -19,6 +20,15 @@ LAND = MissionCommand.LAND
 WAYPOINT = MissionCommand.WAYPOINT
 HOME = MissionCommand.HOME
 MISSION_FINISHED = MissionState.MISSION_FINISHED
+
+
+def spin_until_future(spin_once, node, future, timeout_s: float) -> bool:
+    deadline = time.monotonic() + timeout_s
+    while not future.done() and time.monotonic() < deadline:
+        spin_once(node, timeout_sec=min(0.1, max(0.0, deadline - time.monotonic())))
+    return future.done()
+
+
 def build_plan_items(
     coords: list[tuple[float, float, float]],
     altitude: float,
@@ -188,8 +198,8 @@ def main() -> int:
             print("waypoint addition requested (check mission_server logs for acceptance)")
             return 0
         print("waiting for the mission server state...", flush=True)
-        state_deadline = node.get_clock().now() + rclpy.duration.Duration(seconds=15.0)
-        while readiness["reason"] is None and node.get_clock().now() < state_deadline:
+        state_deadline = time.monotonic() + 15.0
+        while readiness["reason"] is None and time.monotonic() < state_deadline:
             rclpy.spin_once(node, timeout_sec=0.1)
         if readiness["reason"] is None:
             print(
@@ -199,18 +209,26 @@ def main() -> int:
             )
             return 1
         if not readiness["ready"]:
-            print(
-                f"send mission failed: cause: mission server not ready: {readiness['reason']}",
-                file=sys.stderr,
-            )
-            return 1
+            print("waiting up to 30 s for mission server readiness...", flush=True)
+            ready_deadline = time.monotonic() + 30.0
+            while not readiness["ready"] and time.monotonic() < ready_deadline:
+                rclpy.spin_once(node, timeout_sec=0.1)
+            if not readiness["ready"]:
+                print(
+                    "send mission failed: cause: mission server did not become ready within "
+                    f"30 s: {readiness['reason']}",
+                    file=sys.stderr,
+                )
+                return 1
         if args.clear:
             clear_client = node.create_client(Trigger, "clear_mission")
             if not clear_client.wait_for_service(timeout_sec=5.0):
                 print("clear mission failed: clear_mission service unavailable", file=sys.stderr)
                 return 1
             future = clear_client.call_async(Trigger.Request())
-            rclpy.spin_until_future_complete(node, future)
+            if not spin_until_future(rclpy.spin_once, node, future, 5.0):
+                print("clear mission failed: service response timed out after 5 s", file=sys.stderr)
+                return 1
             response = future.result()
             if response is None or not response.success:
                 print(f"clear mission failed: {response.message if response else 'no response'}", file=sys.stderr)
@@ -225,7 +243,9 @@ def main() -> int:
             value = f"{new_home[0]:.9f},{new_home[1]:.9f}"
             param = RosParameter(name="saved_home", value=ParameterValue(type=ParameterType.PARAMETER_STRING, string_value=value))
             future = setter.call_async(SetParameters.Request(parameters=[param]))
-            rclpy.spin_until_future_complete(node, future)
+            if not spin_until_future(rclpy.spin_once, node, future, 5.0):
+                print("sethome failed: service response timed out after 5 s", file=sys.stderr)
+                return 1
             result = future.result()
             if result is None or not result.results[0].successful:
                 print("sethome failed: parameter rejected", file=sys.stderr)
@@ -238,7 +258,9 @@ def main() -> int:
             print(f"{target_service} service unavailable", file=sys.stderr)
             return 1
         future = target.call_async(Trigger.Request())
-        rclpy.spin_until_future_complete(node, future)
+        if not spin_until_future(rclpy.spin_once, node, future, 5.0):
+            print(f"{target_service} timed out waiting for a response", file=sys.stderr)
+            return 1
         response = future.result()
         if response is None or not response.success:
             print(f"target unavailable: {response.message if response else 'no response'}", file=sys.stderr)
@@ -272,14 +294,18 @@ def main() -> int:
             plan.commands.append(command)
         plan.home = GeoPoint(latitude=home[0], longitude=home[1], altitude=0.0)
         print("waiting for the mission server to be ready for missions")
-        client.wait_for_server()
+        if not client.wait_for_server(timeout_sec=10.0):
+            print("send mission failed: execute_mission action server unavailable after 10 s", file=sys.stderr)
+            return 1
         goal = ExecuteMission.Goal()
         goal.plan = plan
         def on_feedback(message):
             feedback = message.feedback
             print(f"command {feedback.command_id} status {feedback.status}")
         send = client.send_goal_async(goal, feedback_callback=on_feedback)
-        rclpy.spin_until_future_complete(node, send)
+        if not spin_until_future(rclpy.spin_once, node, send, 15.0):
+            print("send mission failed: timed out waiting 15 s for mission acceptance", file=sys.stderr)
+            return 1
         handle = send.result()
         if handle is None or not handle.accepted:
             print(

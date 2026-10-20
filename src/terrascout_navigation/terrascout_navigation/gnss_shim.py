@@ -49,6 +49,15 @@ class GnssShimNode(Node):
                 "0 for an ENU-aligned map; set only from measured axis calibration",
             )
         )
+        self._simulated_position_std_m = declare(
+            self,
+            "simulated_position_std_m",
+            Parameter.Type.DOUBLE,
+            "Configured nominal position standard deviation for Gazebo NavSatFix messages",
+            0.01,
+            100.0,
+            "simulation-only fallback used when Gazebo does not populate covariance",
+        )
         self._publish_static_map_odom()
         self._publish_datum()
         self.get_logger().info("Publishing TF")
@@ -117,7 +126,23 @@ class GnssShimNode(Node):
         self.odom_enu_pub.publish(enu)
 
     def _navsat_cb(self, msg):
-        self.llh_pub.publish(msg)
+        fix = NavSatFix()
+        fix.header = msg.header
+        fix.status = msg.status
+        fix.latitude = msg.latitude
+        fix.longitude = msg.longitude
+        fix.altitude = msg.altitude
+        fix.position_covariance = list(msg.position_covariance)
+        fix.position_covariance_type = msg.position_covariance_type
+        if fix.position_covariance_type == NavSatFix.COVARIANCE_TYPE_UNKNOWN:
+            variance = self._simulated_position_std_m**2
+            fix.position_covariance = [
+                variance, 0.0, 0.0,
+                0.0, variance, 0.0,
+                0.0, 0.0, variance,
+            ]
+            fix.position_covariance_type = NavSatFix.COVARIANCE_TYPE_DIAGONAL_KNOWN
+        self.llh_pub.publish(fix)
 
 
 def main():
