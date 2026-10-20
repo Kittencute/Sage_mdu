@@ -24,5 +24,8 @@ uint8[] command_status
 # MISSION_* value
 uint8 mission_status
 
+# Most recent mission-level failure or suspension reason, empty when none
+string failure_reason
+
 bool ready
 string not_ready_reason

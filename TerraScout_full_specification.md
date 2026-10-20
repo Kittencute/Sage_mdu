@@ -98,7 +98,7 @@ Base requirements are mandatory. Extra requirements apply only if time allows.
 - [x?] **MIS-16** Base. Whenever the mission or any destination changes status, the vehicle shall preserve the mission identifier, the status of each destination, the keepout areas, the selected order and any failure reasons.
 - [x?] **MIS-17** Base. After manual takeover or a process restart, the vehicle shall remain stopped and restore the mission in a suspended state. Resuming shall require an explicit command, valid localisation and new paths.
 - [ ] **MIS-18** Base. The vehicle shall maintain control and telemetry at a range of 100 m (ARES REQ-200) and when natural terrain blocks the line of sight (ARES REQ-210). A separate test shall evaluate operation with other wireless networks active (ARES REQ-080).
-- [not tested] **MIS-19** Base. The vehicle shall support at least 20 min of continuous mission operation (ARES REQ- 370).
+- [x*] **MIS-19** Base. The vehicle shall support at least 20 min of continuous mission operation (ARES REQ- 370).
 - [x*] **MIS-20** Base. In an assessed trial, the nearest vehicle edge shall pass within 1 m of each completed destination, following the Task 1 scoring distance, and the mission shall finish within 20 min.
 - [ ] **MIS-21** Base. On a common time base, the vehicle shall record mission state, order, paths, keepout areas, commands, mode, faults, interventions, position, localisation and obstacle data.
 - [x?] **MIS-22** Base. A script shall summarise each order change and destination outcome, including the reason. The script shall also report minimum distances, completion time, distance driven, stops, interventions and faults.

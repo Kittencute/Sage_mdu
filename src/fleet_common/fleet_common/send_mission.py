@@ -187,6 +187,23 @@ def main() -> int:
             rclpy.spin_once(node, timeout_sec=0.2)
             print("waypoint addition requested (check mission_server logs for acceptance)")
             return 0
+        print("waiting for the mission server state...", flush=True)
+        state_deadline = node.get_clock().now() + rclpy.duration.Duration(seconds=15.0)
+        while readiness["reason"] is None and node.get_clock().now() < state_deadline:
+            rclpy.spin_once(node, timeout_sec=0.1)
+        if readiness["reason"] is None:
+            print(
+                "send mission failed: cause: no mission_state received within 15 s; "
+                "check mission_server and ROS namespace",
+                file=sys.stderr,
+            )
+            return 1
+        if not readiness["ready"]:
+            print(
+                f"send mission failed: cause: mission server not ready: {readiness['reason']}",
+                file=sys.stderr,
+            )
+            return 1
         if args.clear:
             clear_client = node.create_client(Trigger, "clear_mission")
             if not clear_client.wait_for_service(timeout_sec=5.0):
@@ -255,8 +272,6 @@ def main() -> int:
             plan.commands.append(command)
         plan.home = GeoPoint(latitude=home[0], longitude=home[1], altitude=0.0)
         print("waiting for the mission server to be ready for missions")
-        while not readiness["ready"]:
-            rclpy.spin_once(node)
         client.wait_for_server()
         goal = ExecuteMission.Goal()
         goal.plan = plan

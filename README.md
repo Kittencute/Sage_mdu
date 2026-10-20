@@ -165,11 +165,17 @@ Use `/terrascout1/mission_waypoints/clear` to discard the draft before submittin
 
 ### Take over and hand back
 
-Driving from the Foxglove Teleop panel puts the TerraScout in manual control and aborts its mission.
+Driving from the Foxglove Teleop panel locks autonomy, cancels the active Nav2 goal and suspends the mission at its current destination. Use the explicit resume service to return control; it rejects while the e-stop/operator input is active, localization is invalid or stale, or navigation is unavailable. A fresh path is computed before Nav2 receives a movement goal.
 
 ```sh
 ros2 service call /terrascout1/resume_autonomy std_srvs/srv/Trigger
 ```
+
+Mission state and keepout-zone definitions are atomically saved under
+`/run/sage/terrascout1/` (the unit's mounted run directory). After a mission-server restart the mission is
+restored suspended; autonomy starts locked and requires the explicit resume
+service. The interactive tester includes suspend, state-inspection and restart
+checklist entries for MIS-16/MIS-17.
 
 ### Soft e-stop
 

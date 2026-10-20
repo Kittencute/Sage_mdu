@@ -187,6 +187,38 @@ def set_home(waypoints):
         print('Saved Home may reset when the mission server restarts.')
 
 
+def control_mission(request):
+    return run_command([
+        'ros2', 'service', 'call', f'/{NAMESPACE}/control_mission',
+        'fleet_interfaces/srv/ControlMission', f'{{request: {request}}}',
+    ])
+
+
+def resume_autonomy():
+    result = run_command([
+        'ros2', 'service', 'call',
+        f'/{NAMESPACE}/resume_autonomy', 'std_srvs/srv/Trigger', '{}',
+    ])
+    if result != 0:
+        print('Resume request failed or timed out. Keep autonomy locked and inspect service logs.')
+    return result
+
+
+def inspect_mission_state():
+    print(f'\nMission state for /{NAMESPACE}/mission_state (waiting up to 5 seconds):')
+    print('Mission status: 0=IDLE, 1=RUNNING, 2=PAUSED, 3=FINISHED, 4=FAILED, 5=ABORTED')
+    print('Command status: 0=WAITING, 1=RUNNING, 2=PAUSED, 3=FINISHED, 4=FAILED, 5=ABORTED')
+    print('command_ids and command_status are aligned; current_command_id is the active destination.')
+    result = run_command([
+        'ros2', 'topic', 'echo', '--once', '--timeout', '5.0',
+        '--qos-durability', 'transient_local',
+        f'/{NAMESPACE}/mission_state', 'fleet_interfaces/msg/MissionState',
+    ])
+    if result != 0:
+        print('No mission state received. Check that mission_server is running and publishing.')
+    return result
+
+
 def main():
     try:
         waypoints = load_waypoints()
@@ -201,8 +233,10 @@ def main():
 4. Clear / cancel mission
 5. Go to saved Home
 6. Set saved Home from a test waypoint
-7. Resume autonomy
+7. Resume autonomy (validates and resumes suspended mission)
 8. Show test waypoints
+9. Suspend mission
+10. Show mission state
 0. Exit''')
         try:
             choice = input('Select: ').strip()
@@ -219,15 +253,20 @@ def main():
             elif choice == '6':
                 set_home(waypoints)
             elif choice == '7':
-                run_command(['ros2', 'service', 'call', f'/{NAMESPACE}/resume_autonomy',
-                             'std_srvs/srv/Trigger', '{}'])
+                resume_autonomy()
             elif choice == '8':
                 for name, coord in waypoints.items():
                     print(f'{name}: {coord}')
+            elif choice == '9':
+                control_mission(1)
+            elif choice == '10':
+                inspect_mission_state()
+                print(f'Persistent snapshots are in /run/sage/{NAMESPACE}/ inside the robot container.')
+                print('Files: mission_state.json and keepout_zones.json')
             elif choice == '0':
                 return 0
             else:
-                print('Choose an option from 0 to 8.')
+                print('Choose an option from 0 to 10.')
         except (KeyboardInterrupt, EOFError):
             print('\nExiting menu (any started mission client may continue).')
             return 0

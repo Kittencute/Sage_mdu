@@ -3,6 +3,7 @@ from __future__ import annotations
 import itertools
 import json
 import math
+import os
 import sys
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -14,6 +15,7 @@ from action_msgs.srv import CancelGoal
 from ament_index_python.packages import get_package_share_directory
 from fleet_interfaces.action import ExecuteMission
 from fleet_interfaces.msg import MissionCommand, MissionPlan, MissionState
+from geographic_msgs.msg import GeoPoint
 from fleet_interfaces.srv import ControlMission
 from foxglove_msgs.msg import GeoJSON
 from lifecycle_msgs.msg import State, TransitionEvent
@@ -45,6 +47,7 @@ NAVIGATION_NODES_PARAMETER = "node_names"
 TICK_PERIOD_S = 0.1
 GOAL_RESPONSE_TIMEOUT_S = 10.0
 STOP_TIMEOUT_S = 10.0
+POSITION_MAX_AGE_S = 2.0
 HOME_POINT = 0
 FACING_EAST = 0.0
 TERMINAL_GOAL_STATUSES = frozenset(
@@ -152,6 +155,15 @@ class GroundMissionServer(Node):
             "Topic that publishes the robot geodetic position",
             constraints="a ROS topic name",
         )
+        self._localization_max_horizontal_std_m = declare(
+            self,
+            "localization_max_horizontal_std_m",
+            Parameter.Type.DOUBLE,
+            "Maximum reported horizontal position standard deviation allowed for resume, in metres",
+            0.1,
+            100.0,
+            "Configured by fleet_config; recommended default is 5.0 m",
+        )
         self._max_leg_length_m = declare(
             self,
             "max_leg_length_m",
@@ -209,8 +221,14 @@ class GroundMissionServer(Node):
             "Saved GPS Home position as latitude,longitude; empty when not configured",
         )
         self._last_mission_start: tuple[float, float] | None = None
+        namespace = self.get_namespace().strip("/") or "default"
+        self._snapshot_path = Path("/run/sage") / namespace / "mission_state.json"
+        self._last_failure_reason = ""
+        self._recovered_failure_reason = ""
         self._clear_pending = False
         self._mission: _Mission | None = None
+        self._restore_pending = False
+        self._recovery_complete = False
         self._results: dict[bytes, Future] = {}
         self._datum: NavSatFix | None = None
         self._position: NavSatFix | None = None
@@ -223,6 +241,7 @@ class GroundMissionServer(Node):
         self._not_ready_reason = ""
         self._last_state = MissionState(mission_id=-1, current_command_id=-1)
         self._state_pub = self.create_publisher(MissionState, "mission_state", latched_qos())
+        self._restore_lock_pub = self.create_publisher(Bool, "mission_restore_lock", latched_qos())
         self._geojson_pub = self.create_publisher(GeoJSON, "waypoints_geo", latched_qos())
         self._navigation_parameters_client = self.create_client(
             GetParameters, f"{self._navigation_manager}/get_parameters"
@@ -231,6 +250,11 @@ class GroundMissionServer(Node):
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self, spin_thread=True)
         self._nav = ActionClient(self, NavigateToPose, "navigate_to_pose")
+        self._startup_cancel_client = self.create_client(
+            CancelGoal, "navigate_to_pose/_action/cancel_goal"
+        )
+        self._startup_cancel_sent = False
+        self._startup_cancel_done = False
         self._server = ActionServer(
             self,
             ExecuteMission,
@@ -255,6 +279,97 @@ class GroundMissionServer(Node):
         )
         self.create_timer(TICK_PERIOD_S, self._tick)
         self._update_readiness()
+
+    def _write_snapshot(self, mission: _Mission | None, status: int | None = None) -> None:
+        if mission is None:
+            return
+        payload = {
+            "mission_id": mission.plan.id,
+            "home": [mission.plan.home.latitude, mission.plan.home.longitude,
+                     mission.plan.home.altitude],
+            "commands": [
+                {"id": c.id, "kind": c.kind, "latitude": c.latitude,
+                 "longitude": c.longitude, "altitude_agl": c.altitude_agl,
+                 "hold_s": c.hold_s, "acceptance_radius_m": c.acceptance_radius_m,
+                 "yaw_deg": c.yaw_deg, "parameters": list(c.parameters)}
+                for c in mission.plan.commands
+            ],
+            "command_status": list(mission.status),
+            "current_index": mission.index,
+            "mission_status": status if status is not None else MissionState.MISSION_PAUSED,
+            "phase": "paused" if status == MissionState.MISSION_PAUSED else "terminal" if status in (
+                MissionState.MISSION_FINISHED, MissionState.MISSION_FAILED,
+                MissionState.MISSION_ABORTED,
+            ) else "paused",
+            "failure_reason": self._last_failure_reason or mission.abort_reason,
+            "start_position": mission.start_position,
+            "waypoints": mission.waypoints,
+        }
+        self._snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self._snapshot_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(payload, allow_nan=True) + "\n", encoding="utf-8")
+        os.replace(temporary, self._snapshot_path)
+
+    def _restore_mission_snapshot(self) -> None:
+        try:
+            payload = json.loads(self._snapshot_path.read_text(encoding="utf-8"))
+            if payload.get("phase") != "paused":
+                if payload.get("phase") == "terminal":
+                    command_ids = [int(command["id"]) for command in payload["commands"]]
+                    if command_ids:
+                        index = max(0, min(int(payload["current_index"]), len(command_ids) - 1))
+                        msg = MissionState()
+                        msg.mission_id = int(payload["mission_id"])
+                        msg.current_command_id = command_ids[index]
+                        msg.command_ids = command_ids
+                        msg.command_status = list(payload["command_status"])
+                        msg.mission_status = int(payload["mission_status"])
+                        msg.failure_reason = payload.get("failure_reason", "")
+                        self._last_failure_reason = msg.failure_reason
+                        self._publish(msg)
+                return
+            if self._taken_over:
+                self.get_logger().warning(
+                    "saved mission remains suspended; explicit resume is required"
+                )
+            plan = MissionPlan()
+            plan.id = int(payload["mission_id"])
+            plan.home = GeoPoint(latitude=payload["home"][0], longitude=payload["home"][1],
+                                 altitude=payload["home"][2])
+            commands = []
+            for item in payload["commands"]:
+                command = MissionCommand()
+                for key in ("id", "kind", "latitude", "longitude", "altitude_agl",
+                            "hold_s", "acceptance_radius_m", "yaw_deg"):
+                    setattr(command, key, item[key])
+                command.parameters = item["parameters"]
+                commands.append(command)
+            plan.commands = commands
+            if not commands:
+                raise ValueError("restored mission has no commands")
+            positions, points = self._plan_points(plan)
+            statuses = list(payload["command_status"])
+            index = max(0, min(int(payload["current_index"]), len(commands) - 1))
+            if statuses[index] == MissionState.COMMAND_RUNNING:
+                statuses[index] = MissionState.COMMAND_PAUSED
+            self._mission = _Mission(
+                plan=plan, goal=None, points=points, yaws=goal_yaws(points),
+                point_of={command_index: point for point, command_index in
+                          enumerate(positions, start=1)}, status=statuses,
+                start_position=payload.get("start_position", {}),
+                waypoints=payload.get("waypoints", []), phase=Phase.PAUSED, index=index,
+            )
+            self._last_failure_reason = payload.get("failure_reason", "")
+            self._recovered_failure_reason = self._last_failure_reason
+            self._restore_lock_pub.publish(Bool(data=True))
+            self.get_logger().warning(
+                f"restored mission {plan.id} suspended at command {commands[index].id}; "
+                "explicit resume is required"
+            )
+        except FileNotFoundError:
+            return
+        except (KeyError, TypeError, ValueError, IndexError, json.JSONDecodeError) as error:
+            self.get_logger().error(f"could not restore mission snapshot: {error}")
     def _track_navigation(self) -> None:
         if not self._navigation_states:
             self._request_node_list()
@@ -269,6 +384,35 @@ class GroundMissionServer(Node):
             del self._state_requests[name]
             if self._navigation_states[name] is None:
                 self._navigation_states[name] = request.result().current_state.id
+
+    def _cancel_navigation_after_restart(self) -> None:
+        if self._startup_cancel_done:
+            return
+        if self._startup_cancel_sent:
+            return
+        if not self._startup_cancel_client.service_is_ready():
+            return
+        self._startup_cancel_sent = True
+        future = self._startup_cancel_client.call_async(CancelGoal.Request())
+        future.add_done_callback(self._startup_cancel_complete)
+
+    def _startup_cancel_complete(self, future) -> None:
+        try:
+            response = future.result()
+            if response.return_code in (
+                CancelGoal.Response.ERROR_NONE,
+                CancelGoal.Response.ERROR_REJECTED,
+                CancelGoal.Response.ERROR_GOAL_TERMINATED,
+            ):
+                self._startup_cancel_done = True
+            else:
+                self._startup_cancel_sent = False
+                self.get_logger().error(
+                    f"startup Nav2 cancel-all failed with return code {response.return_code}"
+                )
+        except Exception as error:
+            self._startup_cancel_sent = False
+            self.get_logger().error(f"startup Nav2 cancellation failed: {error}")
     def _request_node_list(self) -> None:
         if self._node_list is None:
             if self._navigation_parameters_client.service_is_ready():
@@ -301,6 +445,12 @@ class GroundMissionServer(Node):
     def _on_datum(self, msg: NavSatFix) -> None:
         if self._datum is None:
             self._datum = msg
+            if not self._restore_pending:
+                self._restore_pending = True
+                self._restore_mission_snapshot()
+                self._recovery_complete = True
+            if self._mission is not None:
+                self._publish_state(self._mission, MissionState.MISSION_PAUSED)
     def _on_position(self, msg: NavSatFix) -> None:
         self._position = msg
         if (
@@ -327,8 +477,9 @@ class GroundMissionServer(Node):
             reasons.append("navigate_to_pose server unavailable")
         if self._datum is None:
             reasons.append(f"no datum on {self._datum_topic}")
-        if self._position is None:
-            reasons.append(f"no robot position on {self._position_topic}")
+        localization_reason = self._localization_reason(check_tf=False)
+        if localization_reason:
+            reasons.append(localization_reason)
         if self._taken_over:
             reasons.append("manual control; call resume_autonomy")
         ready, reason = not reasons, "; ".join(reasons)
@@ -349,6 +500,8 @@ class GroundMissionServer(Node):
     def _rejection(self, plan: MissionPlan) -> str:
         if not self._ready:
             return f"not ready: {self._not_ready_reason}"
+        if not self._startup_cancel_done:
+            return "startup navigation cancellation is not confirmed"
         if self._mission is not None:
             return f"mission {self._mission.plan.id} is active"
         if not plan.commands:
@@ -404,7 +557,11 @@ class GroundMissionServer(Node):
             ],
         )
         self._last_mission_start = (self._position.latitude, self._position.longitude)
+        self._last_failure_reason = ""
+        self._recovered_failure_reason = ""
         self._mission = mission
+        self._last_state.failure_reason = ""
+        self._write_snapshot(mission)
         self._results[bytes(goal_handle.goal_id.uuid)] = mission.result
         goal_handle.execute()
         self.get_logger().info(f"mission {plan.id} started with {len(plan.commands)} commands")
@@ -420,7 +577,15 @@ class GroundMissionServer(Node):
     def _on_takeover(self, msg: Bool) -> None:
         self._taken_over = msg.data
         if msg.data and self._mission is not None:
-            self._abort(self._mission, OPERATOR_TOOK_OVER)
+            mission = self._mission
+            if mission.phase in (Phase.NAVIGATING, Phase.HOLDING):
+                mission.phase = Phase.SUSPENDING
+                mission.hold_until = None
+                self._set_deadline(mission, STOP_TIMEOUT_S, STOP_OVERDUE)
+                self._write_snapshot(mission, MissionState.MISSION_PAUSED)
+                self.get_logger().warning(
+                    f"mission {mission.plan.id} suspended for operator takeover"
+                )
     def _on_add_waypoint(self, msg: String) -> None:
         mission = self._mission
         if mission is None or mission.phase not in (Phase.NAVIGATING, Phase.HOLDING, Phase.PAUSED):
@@ -479,6 +644,7 @@ class GroundMissionServer(Node):
             mission.point_of = {index: point for point, index in enumerate(positions, start=1)}
             mission.waypoints = [{"lat": c.latitude, "lon": c.longitude}
                                  for c in commands if c.kind == MissionCommand.WAYPOINT]
+            self._write_snapshot(mission)
             self._publish_geojson(mission, self._waypoints_before(mission, mission.index))
             self._publish_state(mission, MissionState.MISSION_RUNNING)
             self.get_logger().info(f"added waypoint {lat},{lon} ({mode})")
@@ -529,6 +695,8 @@ class GroundMissionServer(Node):
     def _control(self, request: int) -> tuple[bool, str]:
         mission = self._mission
         if mission is None:
+            if not self._recovery_complete:
+                return False, "mission recovery is waiting for map datum; remain stopped"
             return False, "no active mission"
         if request == ControlMission.Request.SUSPEND:
             if mission.phase not in (Phase.NAVIGATING, Phase.HOLDING):
@@ -539,9 +707,66 @@ class GroundMissionServer(Node):
         if request == ControlMission.Request.RESUME:
             if mission.phase != Phase.PAUSED:
                 return False, "mission is not suspended"
+            localization_reason = self._localization_reason(check_tf=True)
+            if localization_reason:
+                return False, f"{localization_reason}; mission remains suspended"
+            if self._recovered_failure_reason:
+                return False, (
+                    "restored mission includes an unresolved failed/aborted command; "
+                    "operator review is required before resuming"
+                )
+            if not self._startup_cancel_done:
+                return False, "startup navigation cancellation is not confirmed; remain stopped"
+            if not self._nav.server_is_ready() or not self._path_client.server_is_ready():
+                return False, "navigation planner/controller is unavailable; mission remains suspended"
             self._start_command(mission)
             return True, ""
         return False, f"unknown request {request}"
+
+    def _localization_reason(self, check_tf: bool) -> str:
+        fix = self._position
+        if fix is None:
+            return f"no robot position on {self._position_topic}"
+        if fix.status.status < NavSatStatus.STATUS_FIX:
+            return f"position status {fix.status.status} is not a valid fix"
+        if not all(math.isfinite(value) for value in (fix.latitude, fix.longitude)):
+            return "position latitude/longitude is not finite"
+        if not (-90.0 <= fix.latitude <= 90.0 and -180.0 <= fix.longitude <= 180.0):
+            return "position latitude/longitude is outside valid bounds"
+        stamp = Time.from_msg(fix.header.stamp)
+        if stamp.nanoseconds <= 0:
+            return "position timestamp is missing"
+        age_ns = (self._now() - stamp).nanoseconds
+        if age_ns < 0:
+            return "position timestamp is in the future"
+        if age_ns > int(POSITION_MAX_AGE_S * 1e9):
+            return f"position is stale ({age_ns / 1e9:.2f} s old; limit {POSITION_MAX_AGE_S:.1f} s)"
+        if fix.position_covariance_type == NavSatFix.COVARIANCE_TYPE_UNKNOWN:
+            return "position uncertainty is unknown"
+        variance_east, variance_north = fix.position_covariance[0], fix.position_covariance[4]
+        if not all(math.isfinite(value) and value >= 0.0 for value in (variance_east, variance_north)):
+            return "position uncertainty is invalid"
+        horizontal_std = math.sqrt(max(variance_east, variance_north))
+        if horizontal_std > self._localization_max_horizontal_std_m:
+            return (
+                f"position uncertainty is too high ({horizontal_std:.2f} m; "
+                f"limit {self._localization_max_horizontal_std_m:.2f} m)"
+            )
+        if check_tf:
+            try:
+                transform = self._tf_buffer.lookup_transform(
+                    self._global_frame, self._robot_base_frame, Time(),
+                    timeout=Duration(seconds=0.0),
+                )
+            except TransformException:
+                return "localization transform is unavailable"
+            tf_stamp = Time.from_msg(transform.header.stamp)
+            tf_age_ns = (self._now() - tf_stamp).nanoseconds
+            if tf_stamp.nanoseconds <= 0 or tf_age_ns < 0:
+                return "localization transform timestamp is invalid"
+            if tf_age_ns > int(POSITION_MAX_AGE_S * 1e9):
+                return f"localization transform is stale ({tf_age_ns / 1e9:.2f} s old)"
+        return ""
     def _abort(self, mission: _Mission, reason: str) -> None:
         if mission.abort_reason in (reason, OPERATOR_TOOK_OVER):
             return
@@ -550,12 +775,13 @@ class GroundMissionServer(Node):
         mission.phase = Phase.ABORTING
         self._set_deadline(mission, STOP_TIMEOUT_S, STOP_OVERDUE)
     def _tick(self) -> None:
+        self._cancel_navigation_after_restart()
         self._track_navigation()
         self._update_readiness()
         mission = self._mission
         if mission is None:
             return
-        if mission.goal.is_cancel_requested:
+        if mission.goal is not None and mission.goal.is_cancel_requested:
             self._abort(mission, CANCELLED_BY_MANAGER)
         try:
             self._advance(mission)
@@ -565,7 +791,7 @@ class GroundMissionServer(Node):
                 MissionState.MISSION_FAILED,
                 MissionState.COMMAND_FAILED,
                 str(error),
-                mission.goal.abort,
+                mission.goal.abort if mission.goal is not None else (lambda: None),
             )
     def _advance(self, mission: _Mission) -> None:
         if mission.deadline is not None and self._now() > mission.deadline:
@@ -594,7 +820,10 @@ class GroundMissionServer(Node):
             self._set_status(mission, mission.index, MissionState.COMMAND_FINISHED)
             mission.index += 1
         if mission.index == len(commands):
-            self._finish(mission, MissionState.MISSION_FINISHED, None, "", mission.goal.succeed)
+            self._finish(
+                mission, MissionState.MISSION_FINISHED, None, "",
+                mission.goal.succeed if mission.goal is not None else (lambda: None),
+            )
             return
         mission.phase = Phase.NAVIGATING
         self._set_status(mission, mission.index, MissionState.COMMAND_RUNNING)
@@ -722,6 +951,7 @@ class GroundMissionServer(Node):
         mission.phase = Phase.PAUSED
         self._set_status(mission, mission.index, MissionState.COMMAND_PAUSED)
         self._publish_state(mission, MissionState.MISSION_PAUSED)
+        self._write_snapshot(mission)
     def _end_abort(self, mission: _Mission) -> None:
         if mission.abort_reason in (OPERATOR_TOOK_OVER, "mission cleared by operator"):
             self._finish_aborted(mission)
@@ -742,13 +972,18 @@ class GroundMissionServer(Node):
             mission.navigation = None
             self._finish_aborted(mission)
     def _finish_aborted(self, mission: _Mission) -> None:
-        cancelled = mission.goal.is_cancel_requested and mission.abort_reason != OPERATOR_TOOK_OVER
+        cancelled = (
+            mission.goal is not None
+            and mission.goal.is_cancel_requested
+            and mission.abort_reason != OPERATOR_TOOK_OVER
+        )
         self._finish(
             mission,
             MissionState.MISSION_ABORTED,
             MissionState.COMMAND_ABORTED,
             mission.abort_reason,
-            mission.goal.canceled if cancelled else mission.goal.abort,
+            (mission.goal.canceled if cancelled else mission.goal.abort)
+            if mission.goal is not None else (lambda: None),
         )
     def _finish(
         self,
@@ -774,14 +1009,20 @@ class GroundMissionServer(Node):
                 len(mission.waypoints),
                 mission_complete=True,
             )
+        self._last_failure_reason = reason if mission_status in (
+            MissionState.MISSION_FAILED, MissionState.MISSION_ABORTED
+        ) else ""
         self._publish_state(mission, mission_status)
-        conclude()
+        self._write_snapshot(mission, mission_status)
+        if mission.goal is not None:
+            conclude()
         result = ExecuteMission.Result()
         result.stamp = self._now().to_msg()
         result.status = mission_status
         result.command_id = mission.plan.commands[index].id
         result.reason = reason
-        mission.result.set_result(result)
+        if not mission.result.done():
+            mission.result.set_result(result)
         self._mission = None
         if self._clear_pending:
             self._clear_pending = False
@@ -980,7 +1221,15 @@ class GroundMissionServer(Node):
         feedback.stamp = self._now().to_msg()
         feedback.command_id = mission.plan.commands[index].id
         feedback.status = status
-        mission.goal.publish_feedback(feedback)
+        if mission.goal is not None:
+            mission.goal.publish_feedback(feedback)
+        self._write_snapshot(mission)
+        mission_status = (
+            MissionState.MISSION_PAUSED
+            if mission.phase == Phase.PAUSED
+            else MissionState.MISSION_RUNNING
+        )
+        self._publish_state(mission, mission_status)
     def _publish_state(self, mission: _Mission, mission_status: int) -> None:
         msg = MissionState()
         msg.mission_id = mission.plan.id
@@ -988,7 +1237,9 @@ class GroundMissionServer(Node):
         msg.command_ids = [command.id for command in mission.plan.commands]
         msg.command_status = list(mission.status)
         msg.mission_status = mission_status
+        msg.failure_reason = self._last_failure_reason or mission.abort_reason
         self._publish(msg)
+        self._write_snapshot(mission, mission_status)
     def _publish(self, msg: MissionState) -> None:
         msg.stamp = self._now().to_msg()
         msg.ready = self._ready

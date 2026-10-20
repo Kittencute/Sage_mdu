@@ -18,6 +18,7 @@
   <depend>python3-numpy</depend>
   <depend>std_msgs</depend>
   <depend>std_srvs</depend>
+  <depend>fleet_interfaces</depend>
   <depend>action_msgs</depend>
 
   <exec_depend>terrascout_description</exec_depend>

@@ -5,7 +5,10 @@ from __future__ import annotations
 import sys
 import struct
 import math
+import json
+import os
 from dataclasses import dataclass
+from pathlib import Path
 
 import rclpy
 from fleet_interfaces.srv import GetKeepoutZone, SetKeepoutZone
@@ -101,6 +104,8 @@ class KeepoutServer(Node):
         self._zones: dict[str, KeepoutZone] = {}
         self._active_label: str | None = None
         self._active_points: list[tuple[float, float, float]] = []
+        namespace = self.get_namespace().strip("/") or "default"
+        self._snapshot_path = Path("/run/sage") / namespace / "keepout_zones.json"
 
         self._zone_pub = self.create_publisher(PolygonStamped, self._zone_topic, latched_qos())
         self._obstacle_pub = self.create_publisher(PointCloud2, self._obstacle_topic, latched_qos())
@@ -119,6 +124,7 @@ class KeepoutServer(Node):
     def _on_datum(self, msg: NavSatFix) -> None:
         if self._datum is None:
             self._datum = msg
+            self._restore_zones()
             self.get_logger().info(
                 f"datum locked from {self._datum_topic}: {msg.latitude:.7f},{msg.longitude:.7f}"
             )
@@ -136,6 +142,7 @@ class KeepoutServer(Node):
                     self._obstacle_pub.publish(self._pointcloud([]))
                     self._marker_pub.publish(self._marker(action=Marker.DELETE))
                     self._request_costmap_clear()
+                self._save_zones()
                 response.accepted = True
                 response.reason = f"zone '{request.label}' deleted"
                 self.get_logger().info(response.reason)
@@ -178,6 +185,7 @@ class KeepoutServer(Node):
             )
             self._active_label = request.label
             self._active_points = points
+            self._save_zones()
 
             msg = PolygonStamped()
             msg.header = self._header()
@@ -198,6 +206,46 @@ class KeepoutServer(Node):
             response.accepted = False
             response.reason = str(exc)
             return response
+
+    def _save_zones(self) -> None:
+        payload = {
+            "active_label": self._active_label,
+            "zones": [{"label": z.label, "latitude": z.latitude,
+                       "longitude": z.longitude, "x_length": z.x_length,
+                       "y_length": z.y_length, "yaw_deg": z.yaw_deg}
+                      for z in self._zones.values()],
+        }
+        self._snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self._snapshot_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        os.replace(temporary, self._snapshot_path)
+
+    def _restore_zones(self) -> None:
+        try:
+            payload = json.loads(self._snapshot_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return
+        except (OSError, json.JSONDecodeError) as error:
+            self.get_logger().error(f"could not restore keepout zones: {error}")
+            return
+        active_label = payload.get("active_label")
+        for item in payload.get("zones", []):
+            request = SetKeepoutZone.Request()
+            request.label = item["label"]
+            request.latitude = float(item["latitude"])
+            request.longitude = float(item["longitude"])
+            request.x_length = float(item["x_length"])
+            request.y_length = float(item["y_length"])
+            request.yaw_deg = float(item["yaw_deg"])
+            response = self._on_set_keepout_zone(request, SetKeepoutZone.Response())
+            if not response.accepted:
+                self.get_logger().error(f"could not restore keepout: {response.reason}")
+        self._active_label = active_label if active_label in self._zones else None
+        active = self._zones.get(self._active_label or "")
+        self._active_points = active.points if active else []
+        self._save_zones()
+        self._republish_active_zone()
+        self.get_logger().info(f"restored {len(self._zones)} keepout zones")
 
     def _on_get_keepout_zone(self, request, response):
         zone = self._zones.get(request.label)

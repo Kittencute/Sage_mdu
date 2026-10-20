@@ -8,9 +8,11 @@ from action_msgs.srv import CancelGoal
 from geometry_msgs.msg import TwistStamped
 from rclpy.duration import Duration
 from rclpy.executors import ExternalShutdownException
+from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.node import Node
 from std_msgs.msg import Bool
 from std_srvs.srv import Trigger
+from fleet_interfaces.srv import ControlMission
 
 from fleet_common import signals
 from fleet_common.qos import latched_qos
@@ -28,21 +30,39 @@ class TeleopTakeoverNode(Node):
     def __init__(self):
         super().__init__("teleop_takeover")
 
+        self._service_group = ReentrantCallbackGroup()
+        self._client_group = ReentrantCallbackGroup()
+
         self._takeover_pub = self.create_publisher(Bool, "teleop_takeover", latched_qos())
-        self._takeover_pub.publish(Bool(data=False))
         self._estop_lock_pub = self.create_publisher(Bool, "estop_lock", 1)
         self._autonomy_lock_pub = self.create_publisher(Bool, "autonomy_lock", 1)
-
-        self._cancel_clients = [self.create_client(CancelGoal, name) for name in CANCEL_SERVICES]
+        self._cancel_clients = [
+            self.create_client(CancelGoal, name, callback_group=self._client_group)
+            for name in CANCEL_SERVICES
+        ]
+        self._mission_control = self.create_client(
+            ControlMission, "control_mission", callback_group=self._client_group
+        )
 
         self._estop_engaged = False
+        # A clean boot has no mission to restore, so permit mission submission.
+        # mission_server separately requests a lock when it restores a mission.
         self._manual = False
         self._last_operator_command = None
+        self._startup_cancel_sent = False
+        self._startup_cancel_done = False
+        self._takeover_pub.publish(Bool(data=False))
 
         self.create_subscription(TwistStamped, "cmd_vel_joy", self._operator_cb, 10)
         self.create_subscription(Bool, "estop", self._estop_cb, 10)
-        self.create_service(Trigger, "resume_autonomy", self._resume_cb)
+        self.create_subscription(Bool, "teleop_takeover", self._takeover_state_cb, latched_qos())
+        self.create_subscription(Bool, "mission_restore_lock", self._restore_lock_cb, latched_qos())
+        self.create_service(
+            Trigger, "resume_autonomy", self._resume_cb,
+            callback_group=self._service_group,
+        )
         self.create_timer(LOCK_PERIOD_S, self._publish_locks)
+        self.create_timer(LOCK_PERIOD_S, self._cancel_navigation_on_startup)
 
         self.get_logger().info(f"teleop_takeover ready: cancel services={CANCEL_SERVICES}")
 
@@ -59,12 +79,38 @@ class TeleopTakeoverNode(Node):
             self._enter_manual("Soft e-stop engaged")
         self._publish_locks()
 
+    def _takeover_state_cb(self, msg: Bool) -> None:
+        if msg.data and not self._manual:
+            self._enter_manual("Mission server requested a safe startup lock")
+
+    def _restore_lock_cb(self, msg: Bool) -> None:
+        if msg.data and not self._manual:
+            self._enter_manual("A suspended mission was restored; operator resume required")
+
     def _publish_locks(self) -> None:
         self._estop_lock_pub.publish(Bool(data=self._estop_engaged))
         self._autonomy_lock_pub.publish(Bool(data=self._manual))
 
-    def _resume_cb(self, request, response):
+    def _cancel_navigation_on_startup(self) -> None:
+        if self._startup_cancel_sent or not self._cancel_clients:
+            return
+        if not all(client.service_is_ready() for client in self._cancel_clients):
+            return
+        for client in self._cancel_clients:
+            client.call_async(CancelGoal.Request()).add_done_callback(
+                partial(self._check_startup_cancel, client.srv_name)
+            )
+        self._startup_cancel_sent = True
+
+    def _check_startup_cancel(self, service: str, future) -> None:
+        self._check_cancel(service, future)
+        self._startup_cancel_done = True
+
+    async def _resume_cb(self, request, response):
         response.success = False
+        if not self._startup_cancel_done:
+            response.message = "startup navigation cancellation is not confirmed; remain stopped"
+            return response
         if self._estop_engaged:
             response.message = "the soft e-stop is engaged"
             return response
@@ -74,6 +120,20 @@ class TeleopTakeoverNode(Node):
         ):
             response.message = "operator commands arrived within the last second"
             return response
+        if self._manual:
+            if not self._mission_control.service_is_ready():
+                response.message = "mission control service is unavailable; manual control remains active"
+                return response
+            mission_request = ControlMission.Request()
+            mission_request.request = ControlMission.Request.RESUME
+            try:
+                mission_response = await self._mission_control.call_async(mission_request)
+            except Exception as error:
+                response.message = f"mission resume request failed; manual control remains active: {error}"
+                return response
+            if not mission_response.accepted and mission_response.reason != "no active mission":
+                response.message = mission_response.reason
+                return response
         self.get_logger().warning("Autonomy resumed; manual control released")
         self._manual = False
         self._takeover_pub.publish(Bool(data=False))

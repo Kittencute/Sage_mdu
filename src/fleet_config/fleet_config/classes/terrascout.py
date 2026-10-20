@@ -76,6 +76,7 @@ COLLISION_POLYGONS = ("PolygonStop", "PolygonSlow30", "PolygonSlow60")
 FRAME_BASE = "base_link"
 FRAME_GLOBAL = "map"
 MAP_YAW_OFFSET_DEG = 0.0
+LOCALIZATION_MAX_HORIZONTAL_STD_M = 5.0
 FRAME_LIDAR = "lidar_link"
 FRAME_CAMERA = "fp_cam_link"
 
@@ -721,6 +722,7 @@ def mission_server(unit: UnitContext, after: list[str]) -> Process:
             "navigation_manager": NAV2_LIFECYCLE_MANAGER,
             "datum_topic": DATUM_TOPIC,
             "position_topic": POSITION_TOPIC,
+            "localization_max_horizontal_std_m": LOCALIZATION_MAX_HORIZONTAL_STD_M,
             "max_leg_length_m": max_leg_length_m(),
             "max_navigation_segment_m": max_navigation_segment_m(),
             # After Nav2 exhausts BT recovery, retry the same failed waypoint once.
