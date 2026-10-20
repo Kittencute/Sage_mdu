@@ -70,7 +70,6 @@ FAST_LIO_SIM_CONFIG = SourceFile(NAVIGATION_PACKAGE, "config/fast_lio_sim.yaml")
 CONTROLLERS_CONFIG = SourceFile(HARDWARE_PACKAGE, "config/controllers.yaml")
 COSTMAPS = ("global_costmap", "local_costmap")
 GLOBAL_COSTMAP_KEYS = (UNIT_PLACEHOLDER, "global_costmap", "global_costmap", "ros__parameters")
-GOAL_MARGIN_M = 5.0
 COLLISION_MONITOR = "collision_monitor"
 COLLISION_POLYGONS = ("PolygonStop", "PolygonSlow30", "PolygonSlow60")
 
@@ -206,6 +205,7 @@ RECORDED_TOPICS = (
     "local_costmap/costmap",
     "map",
     "map_metadata",
+    "mission_state",
     "microstrain/ekf/imu/data",
     "microstrain/imu/data",
     "microstrain/imu/mag",
@@ -696,10 +696,16 @@ def nav2_processes(unit: UnitContext, after: list[str]) -> list[Process]:
 
 
 def max_leg_length_m() -> float:
+    # Long mission legs are advanced through rolling-costmap-sized goals.
+    return 200.0
+
+
+def max_navigation_segment_m() -> float:
     nav2 = NAV2_CONFIG.resolve()
     costmap = value_at(read_yaml(nav2), GLOBAL_COSTMAP_KEYS, nav2)
     window_m = min(value_at(costmap, ("width",), nav2), value_at(costmap, ("height",), nav2))
-    return window_m / 2 - GOAL_MARGIN_M
+    # Keep each target comfortably inside the rolling window, including turns.
+    return window_m * 0.35
 
 
 def mission_server(unit: UnitContext, after: list[str]) -> Process:
@@ -711,10 +717,12 @@ def mission_server(unit: UnitContext, after: list[str]) -> Process:
         namespace=unit.namespace,
         param_values={
             "global_frame": FRAME_GLOBAL,
+            "robot_base_frame": FRAME_BASE,
             "navigation_manager": NAV2_LIFECYCLE_MANAGER,
             "datum_topic": DATUM_TOPIC,
             "position_topic": POSITION_TOPIC,
             "max_leg_length_m": max_leg_length_m(),
+            "max_navigation_segment_m": max_navigation_segment_m(),
             # After Nav2 exhausts BT recovery, retry the same failed waypoint once.
             "waypoint_retry_limit": 1,
             "waypoint_retry_delay_s": 2.0,
@@ -724,6 +732,7 @@ def mission_server(unit: UnitContext, after: list[str]) -> Process:
             "map_yaw_offset_deg": MAP_YAW_OFFSET_DEG,
             "saved_home": "",
         },
+        remaps=TF_REMAPS,
         after=after,
         ready=NodeProbe(f"/{unit.namespace}/{MISSION_SERVER}"),
     )

@@ -169,7 +169,11 @@ def save_trajectory_plot(path: Path, gt_position, lio_position, show=False):
     plt.tight_layout()
     plt.savefig(path, dpi=160)
     if show:
-        plt.show()
+        backend = matplotlib.get_backend().lower()
+        if "agg" in backend:
+            print(f"Plot saved to {path}; backend {matplotlib.get_backend()} has no GUI to display it.")
+        else:
+            plt.show()
     plt.close()
 
 
@@ -195,7 +199,10 @@ def main():
     parser.add_argument("--ground-truth-topic", default="/terrascout1/odom_gt")
     parser.add_argument("--max-dt", type=float, default=0.03)
     parser.add_argument("--imu-height", type=float, default=0.48)
-    parser.add_argument("--out-dir", type=Path, default=Path("fast_lio_error_results"))
+    parser.add_argument(
+        "--out-dir",
+        help="existing mission result bundle directory; defaults to the newest tester-created mission folder",
+    )
     parser.add_argument(
         "--mission", choices=("1", "2", "3", "4"),
         help="mission preset used for this recording (included in output filenames)",
@@ -213,7 +220,8 @@ def main():
         help="UTC recording start (ISO-8601); otherwise inferred from rosbag2_YYYY_MM_DD-HH_MM_SS",
     )
     args = parser.parse_args()
-    args.out_dir.mkdir(parents=True, exist_ok=True)
+    if args.out_dir is not None and not args.out_dir.strip():
+        parser.error("--out-dir cannot be empty; pass a mission result folder")
 
     topics = [args.lio_topic, args.ground_truth_topic]
     data, frames = read_odometry_bag(args.bag, topics)
@@ -248,8 +256,23 @@ def main():
         datetime_tag = recording_start.astimezone(SWEDISH_TIMEZONE).strftime(
             "%Y%m%dT%H%M%S"
         )
-    labels = [f"mission{args.mission}" if args.mission else None, args.mode]
-    output_tag = "_".join([datetime_tag, *(label for label in labels if label)])
+    if args.out_dir is None:
+        workspace_root = Path(__file__).resolve().parents[4]
+        results_root = workspace_root / "src" / "terrascout_mission_tester" / "mission_results"
+        candidates = sorted(
+            (path for path in results_root.glob("mission_*") if path.is_dir()),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        if not candidates:
+            args.out_dir = results_root / f"mission_{datetime_tag}"
+            print(f"No existing mission bundle found; creating one from recording timestamp: {args.out_dir}")
+        else:
+            args.out_dir = candidates[0]
+    else:
+        args.out_dir = Path(args.out_dir)
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    output_prefix = f"{datetime_tag}_"
 
     print("Relative trajectory drift after first-pose alignment:")
     for axis, name in enumerate(("x", "y", "z")):
@@ -266,7 +289,7 @@ def main():
         "error_3d_m,error_roll_deg,error_pitch_deg,error_yaw_deg,error_rotation_deg,"
         "nearest_gt_stamp_dt_s"
     ).split(",")
-    with (args.out_dir / f"{output_tag}_fast_lio_error.csv").open(
+    with (args.out_dir / f"{output_prefix}fast_lio_error.csv").open(
         "w", newline="", encoding="utf-8"
     ) as stream:
         writer = csv.writer(stream)
@@ -285,18 +308,18 @@ def main():
                 *rpy_error_deg[index], rotation_error_deg[index], nearest_dt[index],
             ])
     save_plot(
-        args.out_dir / f"{output_tag}_position_error.png", seconds,
+        args.out_dir / f"{output_prefix}position_error.png", seconds,
         {"x": position_error[:, 0], "y": position_error[:, 1], "z": position_error[:, 2],
          "XY norm": horizontal_error},
         "Position error [m]", "FAST-LIO2 vs ground truth: position error",
     )
     save_plot(
-        args.out_dir / f"{output_tag}_orientation_error.png", seconds,
+        args.out_dir / f"{output_prefix}orientation_error.png", seconds,
         {"roll": rpy_error_deg[:, 0], "pitch": rpy_error_deg[:, 1], "yaw": rpy_error_deg[:, 2]},
         "Relative rotation error [deg]", "FAST-LIO2 vs ground truth: orientation error",
     )
     save_trajectory_plot(
-        args.out_dir / f"{output_tag}_trajectory_comparison.png", gt_imu_p, lio_p_aligned,
+        args.out_dir / f"{output_prefix}trajectory_comparison.png", gt_imu_p, lio_p_aligned,
         show=args.show_trajectory,
     )
     if recording_start is None:

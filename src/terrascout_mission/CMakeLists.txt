@@ -26,6 +26,11 @@ if(BUILD_TESTING)
     test/test_keepout_geometry.py
     APPEND_ENV PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}
   )
+  ament_add_pytest_test(
+    test_route_staging
+    test/test_route_staging.py
+    APPEND_ENV PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}
+  )
 endif()
 
 ament_package()

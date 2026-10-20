@@ -4,19 +4,21 @@ import itertools
 import json
 import math
 import sys
+from pathlib import Path
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from functools import partial
 import rclpy
 from action_msgs.msg import GoalStatus
 from action_msgs.srv import CancelGoal
+from ament_index_python.packages import get_package_share_directory
 from fleet_interfaces.action import ExecuteMission
 from fleet_interfaces.msg import MissionCommand, MissionPlan, MissionState
 from fleet_interfaces.srv import ControlMission
 from foxglove_msgs.msg import GeoJSON
 from lifecycle_msgs.msg import State, TransitionEvent
 from lifecycle_msgs.srv import GetState
-from nav2_msgs.action import NavigateToPose
+from nav2_msgs.action import ComputePathToPose, NavigateToPose
 from rcl_interfaces.srv import GetParameters
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.duration import Duration
@@ -29,12 +31,14 @@ from rclpy.time import Time
 from sensor_msgs.msg import NavSatFix, NavSatStatus
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
+from tf2_ros import Buffer, TransformException, TransformListener
 from fleet_common import signals
 from fleet_common.geodesy import llh_to_enu, enu_to_map
 from fleet_common.params import declare
 from fleet_common.qos import latched_qos
 from fleet_common.waypoint_geojson import build_waypoints_geojson
 from terrascout_mission.foxglove_mission_input import FoxgloveMissionInput
+from terrascout_mission.route_staging import next_navigation_segment, next_path_segment
 POSITION_KINDS = frozenset({MissionCommand.WAYPOINT, MissionCommand.HOME})
 INSTANT_KINDS = frozenset({MissionCommand.TAKEOFF, MissionCommand.LAND})
 NAVIGATION_NODES_PARAMETER = "node_names"
@@ -63,8 +67,14 @@ class MissionError(Exception):
     pass
 @dataclass
 class _Navigation:
-    send: Future
+    send: Future | None
     answer_by: Time
+    staged: bool = False
+    plan: Future | None = None
+    plan_result: Future | None = None
+    destination: tuple[float, float] | None = None
+    needs_staging: bool = False
+    final_yaw: float = 0.0
     result: Future | None = None
     cancel: Future | None = None
 @dataclass
@@ -114,6 +124,13 @@ class GroundMissionServer(Node):
             "Frame in which navigation goals are sent",
             constraints="a tf frame id",
         )
+        self._robot_base_frame = declare(
+            self,
+            "robot_base_frame",
+            Parameter.Type.STRING,
+            "Robot base frame used to read the current pose for staged goals",
+            constraints="a tf frame id",
+        )
         self._navigation_manager = declare(
             self,
             "navigation_manager",
@@ -143,6 +160,14 @@ class GroundMissionServer(Node):
             1.0,
             1000.0,
             "at most half the navigation global costmap window minus the goal margin",
+        )
+        self._max_navigation_segment_m = declare(
+            self,
+            "max_navigation_segment_m",
+            Parameter.Type.DOUBLE,
+            "Maximum straight-line distance for each rolling-costmap navigation goal, in metres",
+            1.0,
+            100.0,
         )
         self._waypoint_retry_limit = declare(
             self,
@@ -202,6 +227,9 @@ class GroundMissionServer(Node):
         self._navigation_parameters_client = self.create_client(
             GetParameters, f"{self._navigation_manager}/get_parameters"
         )
+        self._path_client = ActionClient(self, ComputePathToPose, "compute_path_to_pose")
+        self._tf_buffer = Buffer()
+        self._tf_listener = TransformListener(self._tf_buffer, self, spin_thread=True)
         self._nav = ActionClient(self, NavigateToPose, "navigate_to_pose")
         self._server = ActionServer(
             self,
@@ -595,7 +623,13 @@ class GroundMissionServer(Node):
         status = self._navigation_status(mission.navigation)
         if status not in TERMINAL_GOAL_STATUSES:
             return
+        staged = mission.navigation.staged
         mission.navigation = None
+        if status == GoalStatus.STATUS_SUCCEEDED and staged:
+            self.get_logger().info(
+                "intermediate rolling-costmap goal reached; advancing toward mission destination"
+            )
+            return
         if mission.backtrack_pending:
             if status != GoalStatus.STATUS_SUCCEEDED:
                 raise MissionError(
@@ -653,7 +687,9 @@ class GroundMissionServer(Node):
                     mission.resume_command_index = next_target
                     mission.backtrack_pending = True
                     self._publish_geojson(
-                        mission, self._waypoints_before(mission, next_target)
+                        mission,
+                        self._waypoints_before(mission, next_target),
+                        failed=True,
                     )
                     return
             attempts = mission.waypoint_retries + 1
@@ -758,21 +794,123 @@ class GroundMissionServer(Node):
         else:
             self.get_logger().error(message)
     def _send_goal(self, mission: _Mission, point: int) -> _Navigation:
-        x, y = mission.points[point]
+        destination = mission.points[point]
+        try:
+            transform = self._tf_buffer.lookup_transform(
+                self._global_frame,
+                self._robot_base_frame,
+                Time(),
+                timeout=Duration(seconds=0.0),
+            )
+        except TransformException as error:
+            raise MissionError(
+                f"stage navigation goal failed: cause: no current transform from "
+                f"{self._robot_base_frame} to {self._global_frame}: {error}"
+            ) from error
+        current = (
+            transform.transform.translation.x,
+            transform.transform.translation.y,
+        )
+        if not self._path_client.server_is_ready():
+            raise MissionError(
+            "plan navigation goal failed: cause: compute_path_to_pose action is unavailable"
+            )
+        request = ComputePathToPose.Goal()
+        request.start.header.frame_id = self._global_frame
+        request.start.header.stamp = self._now().to_msg()
+        request.start.pose.position.x = current[0]
+        request.start.pose.position.y = current[1]
+        request.start.pose.orientation.w = 1.0
+        request.goal.header.frame_id = self._global_frame
+        request.goal.header.stamp = self._now().to_msg()
+        planner_destination, needs_staging = next_navigation_segment(
+            current, destination, self._max_navigation_segment_m
+        )
+        request.goal.pose.position.x = planner_destination[0]
+        request.goal.pose.position.y = planner_destination[1]
         yaw = mission.yaws[point]
+        request.goal.pose.orientation.z = math.sin(yaw / 2.0)
+        request.goal.pose.orientation.w = math.cos(yaw / 2.0)
+        request.planner_id = "GridBased"
+        request.use_start = True
         now = self._now()
-        goal = NavigateToPose.Goal()
-        goal.pose.header.frame_id = self._global_frame
-        goal.pose.header.stamp = now.to_msg()
-        goal.pose.pose.position.x = x
-        goal.pose.pose.position.y = y
-        goal.pose.pose.orientation.z = math.sin(yaw / 2.0)
-        goal.pose.pose.orientation.w = math.cos(yaw / 2.0)
         return _Navigation(
-            send=self._nav.send_goal_async(goal),
+            send=None,
             answer_by=now + Duration(seconds=GOAL_RESPONSE_TIMEOUT_S),
+            plan=self._path_client.send_goal_async(request),
+            destination=destination,
+            needs_staging=needs_staging,
+            final_yaw=yaw,
         )
     def _accepted_handle(self, navigation: _Navigation):
+        if navigation.send is None:
+            if navigation.plan is None or not navigation.plan.done():
+                if self._now() > navigation.answer_by:
+                    raise MissionError(
+                        "plan navigation goal failed: cause: compute_path_to_pose "
+                        "did not answer within 10 s"
+                    )
+                return None
+            planner_handle = navigation.plan.result()
+            if not planner_handle.accepted:
+                raise MissionError(
+                    "plan navigation goal failed: cause: compute_path_to_pose rejected the request"
+                )
+            if navigation.plan_result is None:
+                navigation.plan_result = planner_handle.get_result_async()
+                navigation.answer_by = self._now() + Duration(
+                    seconds=GOAL_RESPONSE_TIMEOUT_S
+                )
+                return None
+            if not navigation.plan_result.done():
+                if self._now() > navigation.answer_by:
+                    raise MissionError(
+                        "plan navigation goal failed: cause: compute_path_to_pose "
+                        "did not return a path within 10 s"
+                    )
+                return None
+            result = navigation.plan_result.result()
+            if result.status != GoalStatus.STATUS_SUCCEEDED:
+                raise MissionError(
+                    "plan navigation goal failed: cause: compute_path_to_pose "
+                    f"ended with status {result.status}"
+                )
+            path = [
+                (pose.pose.position.x, pose.pose.position.y)
+                for pose in result.result.path.poses
+            ]
+            if not path:
+                raise MissionError(
+                    "plan navigation goal failed: cause: planner returned an empty path"
+                )
+            if navigation.destination is None:
+                raise MissionError("plan navigation goal failed: cause: missing destination")
+            (x, y), path_requires_another_segment = next_path_segment(
+                path, self._max_navigation_segment_m
+            )
+            navigation.staged = navigation.needs_staging or path_requires_another_segment
+            yaw = (
+                math.atan2(navigation.destination[1] - y, navigation.destination[0] - x)
+                if navigation.staged
+                else navigation.final_yaw
+            )
+            goal = NavigateToPose.Goal()
+            goal.pose.header.frame_id = self._global_frame
+            goal.pose.header.stamp = self._now().to_msg()
+            goal.pose.pose.position.x = x
+            goal.pose.pose.position.y = y
+            goal.pose.pose.orientation.z = math.sin(yaw / 2.0)
+            goal.pose.pose.orientation.w = math.cos(yaw / 2.0)
+            if navigation.staged:
+                goal.behavior_tree = str(
+                    Path(get_package_share_directory("terrascout_mission"))
+                    / "config"
+                    / "navigate_to_pose_intermediate.xml"
+                )
+            navigation.send = self._nav.send_goal_async(goal)
+            navigation.answer_by = self._now() + Duration(seconds=GOAL_RESPONSE_TIMEOUT_S)
+            navigation.plan = None
+            navigation.plan_result = None
         if not navigation.send.done():
             if self._now() > navigation.answer_by:
                 raise MissionError(
@@ -870,10 +1008,23 @@ class GroundMissionServer(Node):
                 mission.plan.commands[mission.index].kind == MissionCommand.HOME
             )
         msg = GeoJSON()
+        waypoint_statuses = []
+        for command_index, command in enumerate(mission.plan.commands):
+            if command.kind != MissionCommand.WAYPOINT:
+                continue
+            status = mission.status[command_index]
+            waypoint_statuses.append({
+                MissionState.COMMAND_FINISHED: "completed",
+                MissionState.COMMAND_FAILED: "failed",
+                MissionState.COMMAND_ABORTED: "failed",
+                MissionState.COMMAND_RUNNING: "active",
+                MissionState.COMMAND_PAUSED: "active",
+            }.get(status, "pending"))
         msg.geojson = build_waypoints_geojson(
             mission.waypoints, current, failed=failed, start_position=mission.start_position,
             return_position={"lat": mission.plan.home.latitude, "lon": mission.plan.home.longitude},
             active=not failed, return_active=return_active, mission_complete=mission_complete,
+            waypoint_statuses=waypoint_statuses,
         )
         self._geojson_pub.publish(msg)
 def main() -> None:

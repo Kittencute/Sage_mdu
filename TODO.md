@@ -32,13 +32,14 @@
   - [ ] Inspect cloud at stopped pose
 - [x] Costmap setup
   - [x] Experimental inflation radius: 1.0 m global / 0.9 m local
-  - [x] Experimental update/publish rates: global 3/2 Hz, local 8/5 Hz
-  - [x] Scaling: 3.0 global / 5.0 local
+  - [x] Experimental update/publish rates: global 3/2 Hz, local 10/8 Hz
+  - [x] Scaling: 6.0 global / 5.0 local
   - [x] Collision Monitor slow zones: retain 70% then 40%; inner stop zone
 - [ ] Costmap validation
   - [ ] Compare the experimental inflation/rates against baseline in simulation
   - [ ] Compare global/local scaling
   - [ ] Inspect Collision Monitor trigger
+  - [ ] Measure CPU and callback latency at 10/8 Hz local costmap rates
 - [x] Keepout zones
   - [x] Nav2 integration
     - [x] Zone services
@@ -56,6 +57,9 @@
   - [ ] Blocked route
   - [ ] Narrow route
   - [ ] Mission backtracking
+  - [ ] Diagnose startup turnaround: compare initial pose yaw, first goal, first planned path segment, and `cmd_vel_nav`/`cmd_vel_auto`
+  - [ ] Test WP12-to-WP5 and other long legs using rolling-window intermediate goals
+  - [ ] Verify staged-goal behavior with blocked paths, cancellation, backtracking, and return-home
 - [ ] MPPI controller
   - [ ] Measure controller load against 20 Hz target
   - [ ] Investigate observed 7 Hz loop
@@ -88,6 +92,7 @@
   - [ ] Test failure continuation
   - [ ] Check mission range
   - [ ] Edit failed waypoint
+  - [ ] Verify GeoJSON waypoint statuses remain consistent with `MissionState` after failure and backtracking
 
 ## Operator interface
 - [x] Foxglove mission workflow

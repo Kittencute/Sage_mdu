@@ -10,6 +10,8 @@ install(PROGRAMS
   terrascout_navigation/fast_lio_odom.py
   terrascout_navigation/gnss_shim.py
   terrascout_navigation/scripts/compare_fast_lio_gt.py
+  terrascout_navigation/scripts/report_mission_bag.py
+  terrascout_navigation/scripts/process_mission_recording.py
   terrascout_navigation/lidar_filter.py
   terrascout_navigation/teleop_takeover.py
   terrascout_navigation/twist_stamper.py
@@ -37,6 +39,11 @@ if(BUILD_TESTING)
     test_teleop_takeover
     test/test_teleop_takeover.py
     APPEND_ENV PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}
+  )
+
+  ament_add_pytest_test(
+    test_report_mission_bag
+    test/test_report_mission_bag.py
   )
 endif()
 

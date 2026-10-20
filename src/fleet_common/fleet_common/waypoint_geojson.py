@@ -17,6 +17,7 @@ def build_waypoints_geojson(
     active=False,
     return_active=False,
     mission_complete=False,
+    waypoint_statuses=None,
 ):
     features = []
     coords = [[wp["lon"], wp["lat"]] for wp in waypoints]
@@ -59,14 +60,25 @@ def build_waypoints_geojson(
             features.append(_line([coords[-1], finish], color))
 
     for i, wp in enumerate(waypoints):
-        color = _point_color(i, current_index, failed, active)
+        status = (
+            waypoint_statuses[i]
+            if waypoint_statuses is not None and i < len(waypoint_statuses)
+            else _point_status(i, current_index, failed, active)
+        )
+        color = {
+            "completed": GREEN,
+            "failed": RED,
+            "skipped": GRAY,
+            "active": ORANGE,
+            "pending": BLUE,
+        }.get(status, BLUE)
         features.append({
             "type": "Feature",
             "geometry": {"type": "Point", "coordinates": [wp["lon"], wp["lat"]]},
             "properties": {
                 "name": f"WP {i + 1}",
                 "metadata": {
-                    "status": _point_status(i, current_index, failed, active),
+                    "status": status,
                     "lat": str(wp["lat"]),
                     "lon": str(wp["lon"]),
                 },

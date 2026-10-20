@@ -9,8 +9,8 @@
       <PipelineSequence>
         <ControllerSelector selected_controller="{selected_controller}" default_controller="FollowPath" topic_name="controller_selector"/>
         <PlannerSelector selected_planner="{selected_planner}" default_planner="GridBased" topic_name="planner_selector"/>
-        <!-- Check path validity and replan at 2 Hz when the current path is invalid. -->
-        <RateController hz="2.0">
+        <!-- Check path validity frequently; compute a new path when the current one is invalid. -->
+        <RateController hz="5.0">
           <RecoveryNode number_of_retries="1" name="ComputePathToPose">
             <Fallback>
               <ReactiveSequence>
@@ -25,7 +25,7 @@
           </RecoveryNode>
         </RateController>
         <RecoveryNode number_of_retries="1" name="FollowPath">
-          <FollowPath path="{path}" controller_id="{selected_controller}" error_code_id="{follow_path_error_code}"/>
+          <FollowPath path="{path}" controller_id="{selected_controller}" goal_checker_id="general_goal_checker" error_code_id="{follow_path_error_code}"/>
           <Sequence name="RecoverAfterFollowFailure">
             <!-- Try a short reverse, but do not let a safety-blocked backup prevent replanning. -->
             <Fallback name="BackupOrContinueToReplan">

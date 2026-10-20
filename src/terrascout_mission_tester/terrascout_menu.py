@@ -10,11 +10,15 @@ import shutil
 import subprocess
 import sys
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parent
 NAMESPACE = os.environ.get('TERRASCOUT_NAMESPACE', 'terrascout1').strip('/')
 BASE = ['ros2', 'run', 'fleet_common', 'send_mission.py', '--namespace', NAMESPACE]
 LOG_DIR = ROOT / 'logs'
+RESULTS_DIR = ROOT / 'mission_results'
+LOCAL_TIMEZONE = ZoneInfo('Europe/Stockholm')
 MISSION_ROUTES = {
     '1': ('Mission 1', ['WP1', 'WP2', 'WP3', 'WP4', 'WP5', 'WP6']),
     '2': ('Mission 2', ['WP7', 'WP8', 'WP9', 'WP10', 'WP11', 'WP12']),
@@ -90,9 +94,10 @@ def run_command(args):
         return 130
 
 
-def start_mission(args):
-    LOG_DIR.mkdir(exist_ok=True)
-    logfile = LOG_DIR / f'mission_{time.strftime("%Y%m%d_%H%M%S")}.log'
+def start_mission(args, run_dir=None):
+    log_dir = run_dir if run_dir is not None else LOG_DIR
+    log_dir.mkdir(parents=True, exist_ok=True)
+    logfile = log_dir / 'mission_client.log' if run_dir is not None else log_dir / f'mission_{time.strftime("%Y%m%d_%H%M%S")}.log'
     print('Mission output:', logfile)
     try:
         command = command_in_ros_environment(args)
@@ -134,7 +139,31 @@ def send_mission(waypoints, mode):
         return
     destination = {'1': ['--return'], '2': ['--home'], '3': []}[choice]
     args = BASE + [f'--{mode}'] + destination + [coord for _, coord in selected]
-    start_mission(args)
+    started = datetime.now(LOCAL_TIMEZONE)
+    run_dir = RESULTS_DIR / f"mission_{started.strftime('%Y%m%d_%H%M%S')}"
+    run_dir.mkdir(parents=True, exist_ok=False)
+    route = {
+        'mission_name': mission_name,
+        'mission_preset': mission_choice,
+        'ordering_mode': mode,
+        'final_destination_option': {'1': 'return_to_start', '2': 'saved_home', '3': 'none'}[choice],
+        'waypoints': [{'name': name, 'coordinates': list(map(float, coord.split(',')))}
+                      for name, coord in selected],
+    }
+    (run_dir / 'waypoints.json').write_text(json.dumps(route, indent=2) + '\n', encoding='utf-8')
+    metadata = {
+        'bundle_created_at': started.isoformat(timespec='seconds'),
+        'namespace': NAMESPACE,
+        'mission_name': mission_name,
+        'mission_preset': mission_choice,
+        'ordering_mode': mode,
+        'final_destination_option': route['final_destination_option'],
+        'mission_client_status': 'started_unconfirmed',
+        'mission_client_log': 'mission_client.log',
+    }
+    (run_dir / 'metadata.json').write_text(json.dumps(metadata, indent=2) + '\n', encoding='utf-8')
+    print('Mission result bundle:', run_dir)
+    start_mission(args, run_dir)
 
 
 def add_waypoint(waypoints):

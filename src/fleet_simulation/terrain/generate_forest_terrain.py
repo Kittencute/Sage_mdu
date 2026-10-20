@@ -6,8 +6,8 @@ from scipy.ndimage import gaussian_filter
 
 # Settings
 N = 513
-SIZE_X = 90.0
-SIZE_Y = 90.0
+SIZE_X = 110.0
+SIZE_Y = 110.0
 HEIGHT = 5
 SEED = 42
 

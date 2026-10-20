@@ -104,6 +104,20 @@ def test_failure_at_waypoint():
     assert points[2]["properties"]["style"]["color"] == GRAY
 
 
+def test_explicit_waypoint_statuses_preserve_failed_destination():
+    result = build_waypoints_geojson(
+        WAYPOINTS,
+        current_index=2,
+        waypoint_statuses=["completed", "failed", "active"],
+    )
+    _, points, _ = _parse(result)
+
+    statuses = [point["properties"]["metadata"]["status"] for point in points]
+    colors = [point["properties"]["style"]["color"] for point in points]
+    assert statuses == ["completed", "failed", "active"]
+    assert colors == [GREEN, RED, ORANGE]
+
+
 def test_point_metadata():
     """Points have name and metadata in properties."""
     result = build_waypoints_geojson(WAYPOINTS, current_index=0)

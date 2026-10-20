@@ -24,3 +24,11 @@ runs/
 /site.yaml
 
 src/terrascout_mission_tester/logs/*.log
+# ROS 2 bag recordings
+rosbag2_*/
+
+# Generated mission test results
+src/terrascout_mission_tester/mission_results/
+
+# Generated FAST-LIO evaluation results
+fast_lio_error_results/

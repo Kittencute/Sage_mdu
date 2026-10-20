@@ -20,7 +20,7 @@
       transform_tolerance: 0.5
   collision_monitor:
     ros__parameters:
-      # Outer zone: reduce speed by 30% (retain 70%)
+      # Outer zone: reduce speed by 30% (retain 70%).
       PolygonSlow30:
         action_type: slowdown
         enabled: true
@@ -31,7 +31,7 @@
         type: polygon
         visualize: true
 
-      # Middle zone: reduce speed by 60% (retain 40%)
+      # Middle zone: reduce speed by 60% (retain 40%).
       PolygonSlow60:
         action_type: slowdown
         enabled: true
@@ -82,7 +82,7 @@
           consider_footprint: true
         PathAlignCritic:
           max_path_occupancy_ratio: 0.05
-          use_path_orientations: true
+          use_path_orientations: false
         PathAngleCritic:
           cost_weight: 2.0
           max_angle_to_furthest: 1.0
@@ -91,6 +91,7 @@
           threshold_to_consider: 0.5
         PreferForwardCritic:
           cost_weight: 2.0
+        # Restore the prior forward acceleration; keep the 1 m/s speed cap.
         ax_max: 2.5
         ax_min: -2.5
         az_max: 3.2
@@ -116,6 +117,7 @@
         primary_controller: nav2_mppi_controller::MPPIController
         prune_distance: 10.0
         rotate_to_heading_angular_vel: 0.7
+        # Preserve the 1 m/s autonomous forward-speed cap.
         vx_max: 1.0
         # Permit slow reverse maneuvers when forward-only tracking is blocked.
         vx_min: -0.25
@@ -126,10 +128,18 @@
       failure_tolerance: 0.3
       general_goal_checker:
         plugin: nav2_controller::SimpleGoalChecker
-        xy_goal_tolerance: 0.7
-        yaw_goal_tolerance: 0.7
+        # Mission completion is based on position; do not require a final heading.
+        xy_goal_tolerance: 1.0
+        yaw_goal_tolerance: 3.14159
+        stateful: true
+      intermediate_goal_checker:
+        plugin: nav2_controller::SimpleGoalChecker
+        xy_goal_tolerance: 2.5
+        yaw_goal_tolerance: 3.14159
+        stateful: true
       goal_checker_plugins:
       - general_goal_checker
+      - intermediate_goal_checker
       min_theta_velocity_threshold: 0.001
       min_x_velocity_threshold: 0.001
       min_y_velocity_threshold: 0.5
@@ -140,19 +150,22 @@
         # Allow slow/cautious motion and brief replanning before declaring a stall.
         movement_time_allowance: 15.0
         required_movement_radius: 0.25
+        # Rotation alone can count as progress after a small heading correction.
         required_movement_angle: 0.25
   global_costmap:
     global_costmap:
       ros__parameters:
+        # Diagnostic: publish complete grids so visualization consumers do not
+        # depend on correctly applying incremental costmap updates.
         always_send_full_costmap: false
         footprint: '[[0.465, 0.35], [0.465, -0.35], [-0.465, -0.35], [-0.465, 0.35]]'
         footprint_padding: 0.01
         global_frame: map
-        height: 100
+        height: 110
         inflation_layer:
           # Narrow the soft-cost band modestly; keep padding beyond the robot's
           # ~0.58 m circumscribed footprint radius.
-          cost_scaling_factor: 6.0
+          cost_scaling_factor: 4.0
           inflation_radius: 1.0
           plugin: nav2_costmap_2d::InflationLayer
         initial_transform_timeout: 30.0
@@ -226,7 +239,7 @@
         publish_frequency: 2.0
         resolution: 0.1
         rolling_window: true
-        width: 100
+        width: 110
   local_costmap:
     local_costmap:
       ros__parameters:
@@ -238,7 +251,7 @@
         height: 15
         inflation_layer:
           # Faster cost falloff with distance; physical safety radius unchanged.
-          cost_scaling_factor: 5.0
+          cost_scaling_factor: 4.0
           inflation_radius: 0.9
           plugin: nav2_costmap_2d::InflationLayer
         initial_transform_timeout: 30.0
@@ -319,6 +332,7 @@
         plugin: nav2_smac_planner::SmacPlannerLattice
         rotation_penalty: 1.5
         tolerance: 0.5
+        allow_unknown: true
       expected_planner_frequency: 1.0
   velocity_smoother:
     ros__parameters:
