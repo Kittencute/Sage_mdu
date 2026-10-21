@@ -23,6 +23,8 @@ from lifecycle_msgs.srv import GetState
 from nav2_msgs.action import ComputePathToPose, NavigateToPose
 from rcl_interfaces.srv import GetParameters
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.clock import Clock, ClockType
 from rclpy.duration import Duration
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -246,7 +248,11 @@ class GroundMissionServer(Node):
         self._navigation_parameters_client = self.create_client(
             GetParameters, f"{self._navigation_manager}/get_parameters"
         )
-        self._path_client = ActionClient(self, ComputePathToPose, "compute_path_to_pose")
+        self._path_callback_group = ReentrantCallbackGroup()
+        self._path_client = ActionClient(
+            self, ComputePathToPose, "compute_path_to_pose",
+            callback_group=self._path_callback_group,
+        )
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self, spin_thread=True)
         self._nav = ActionClient(self, NavigateToPose, "navigate_to_pose")
@@ -264,7 +270,9 @@ class GroundMissionServer(Node):
             handle_accepted_callback=self._on_accepted,
             cancel_callback=self._on_cancel,
         )
-        self.create_service(ControlMission, "control_mission", self._on_control)
+        self.create_service(
+            ControlMission, "control_mission", self._on_control,
+        )
         self.create_service(Trigger, "clear_mission", self._on_clear_mission)
         self.create_service(Trigger, "get_current_point", self._on_get_current_point)
         self.create_subscription(String, "add_mission_waypoint", self._on_add_waypoint, 10)
@@ -314,20 +322,31 @@ class GroundMissionServer(Node):
         try:
             payload = json.loads(self._snapshot_path.read_text(encoding="utf-8"))
             if payload.get("phase") != "paused":
-                if payload.get("phase") == "terminal":
-                    command_ids = [int(command["id"]) for command in payload["commands"]]
-                    if command_ids:
-                        index = max(0, min(int(payload["current_index"]), len(command_ids) - 1))
-                        msg = MissionState()
-                        msg.mission_id = int(payload["mission_id"])
-                        msg.current_command_id = command_ids[index]
-                        msg.command_ids = command_ids
-                        msg.command_status = list(payload["command_status"])
-                        msg.mission_status = int(payload["mission_status"])
-                        msg.failure_reason = payload.get("failure_reason", "")
-                        self._last_failure_reason = msg.failure_reason
-                        self._publish(msg)
-                return
+                if (
+                    payload.get("phase") == "terminal"
+                    and int(payload.get("mission_status", MissionState.MISSION_IDLE))
+                    == MissionState.MISSION_FAILED
+                ):
+                    payload["phase"] = "paused"
+                    self.get_logger().warning(
+                        "restoring failed mission as suspended at its failed command; "
+                        "explicit resume will retry that command"
+                    )
+                else:
+                    if payload.get("phase") == "terminal":
+                        command_ids = [int(command["id"]) for command in payload["commands"]]
+                        if command_ids:
+                            index = max(0, min(int(payload["current_index"]), len(command_ids) - 1))
+                            msg = MissionState()
+                            msg.mission_id = int(payload["mission_id"])
+                            msg.current_command_id = command_ids[index]
+                            msg.command_ids = command_ids
+                            msg.command_status = list(payload["command_status"])
+                            msg.mission_status = int(payload["mission_status"])
+                            msg.failure_reason = payload.get("failure_reason", "")
+                            self._last_failure_reason = msg.failure_reason
+                            self._publish(msg)
+                    return
             if self._taken_over:
                 self.get_logger().warning(
                     "saved mission remains suspended; explicit resume is required"
@@ -689,10 +708,10 @@ class GroundMissionServer(Node):
             response.message = "mission visualization cleared"
         return response
 
-    def _on_control(self, request, response):
-        response.accepted, response.reason = self._control(request.request)
+    async def _on_control(self, request, response):
+        response.accepted, response.reason = await self._control(request.request)
         return response
-    def _control(self, request: int) -> tuple[bool, str]:
+    async def _control(self, request: int) -> tuple[bool, str]:
         mission = self._mission
         if mission is None:
             if not self._recovery_complete:
@@ -710,18 +729,104 @@ class GroundMissionServer(Node):
             localization_reason = self._localization_reason(check_tf=True)
             if localization_reason:
                 return False, f"{localization_reason}; mission remains suspended"
-            if self._recovered_failure_reason:
-                return False, (
-                    "restored mission includes an unresolved failed/aborted command; "
-                    "operator review is required before resuming"
-                )
             if not self._startup_cancel_done:
                 return False, "startup navigation cancellation is not confirmed; remain stopped"
             if not self._nav.server_is_ready() or not self._path_client.server_is_ready():
                 return False, "navigation planner/controller is unavailable; mission remains suspended"
+            path_error = await self._resume_path_error(mission)
+            if path_error:
+                return False, f"cannot resume mission: {path_error}; mission remains suspended"
+            if mission.status[mission.index] in (
+                MissionState.COMMAND_FAILED,
+                MissionState.COMMAND_ABORTED,
+                MissionState.COMMAND_PAUSED,
+            ):
+                mission.status[mission.index] = MissionState.COMMAND_WAITING
+            mission.abort_reason = ""
+            self._last_failure_reason = ""
+            self._recovered_failure_reason = ""
             self._start_command(mission)
             return True, ""
         return False, f"unknown request {request}"
+
+    async def _resume_path_error(self, mission: _Mission) -> str:
+        """Require a fresh feasible path from current TF pose before accepting resume."""
+        if mission.index >= len(mission.plan.commands):
+            return "there is no remaining command to resume"
+        try:
+            transform = self._tf_buffer.lookup_transform(
+                self._global_frame, self._robot_base_frame, Time(),
+                timeout=Duration(seconds=0.0),
+            )
+        except TransformException:
+            return "current robot transform is unavailable"
+        current = (
+            transform.transform.translation.x,
+            transform.transform.translation.y,
+        )
+        destination = mission.points[mission.point_of.get(mission.index, HOME_POINT)]
+        target, _ = next_navigation_segment(
+            current, destination, self._max_navigation_segment_m
+        )
+        request = ComputePathToPose.Goal()
+        request.start.header.frame_id = self._global_frame
+        request.start.header.stamp = self._now().to_msg()
+        request.start.pose.position.x = current[0]
+        request.start.pose.position.y = current[1]
+        request.start.pose.orientation.w = 1.0
+        request.goal.header.frame_id = self._global_frame
+        request.goal.header.stamp = self._now().to_msg()
+        request.goal.pose.position.x = target[0]
+        request.goal.pose.position.y = target[1]
+        yaw = mission.yaws[mission.point_of.get(mission.index, HOME_POINT)]
+        request.goal.pose.orientation.z = math.sin(yaw / 2.0)
+        request.goal.pose.orientation.w = math.cos(yaw / 2.0)
+        request.planner_id = "GridBased"
+        request.use_start = True
+        try:
+            send_future = self._path_client.send_goal_async(request)
+            handle = await self._await_ros_future(send_future, GOAL_RESPONSE_TIMEOUT_S)
+            if not handle.accepted:
+                return "planner rejected the fresh path request"
+            result = await self._await_ros_future(
+                handle.get_result_async(), GOAL_RESPONSE_TIMEOUT_S
+            )
+        except TimeoutError:
+            return "planner did not produce a fresh path before timeout"
+        except Exception as error:
+            return f"fresh path request failed: {error}"
+        if result.status != GoalStatus.STATUS_SUCCEEDED or not result.result.path.poses:
+            return f"no valid path from current position (planner status {result.status})"
+        return ""
+
+    async def _await_ros_future(self, source: Future, timeout_s: float):
+        """Await an rclpy Future with an executor-driven steady-clock timeout."""
+        completed: Future = Future()
+
+        def on_source_done(future):
+            if completed.done():
+                return
+            try:
+                completed.set_result(future.result())
+            except Exception as error:
+                completed.set_exception(error)
+
+        def on_timeout():
+            if not completed.done():
+                completed.set_exception(TimeoutError())
+
+        timer = self.create_timer(
+            timeout_s,
+            on_timeout,
+            clock=Clock(clock_type=ClockType.STEADY_TIME),
+            callback_group=ReentrantCallbackGroup(),
+        )
+        source.add_done_callback(on_source_done)
+        try:
+            return await completed
+        finally:
+            timer.cancel()
+            self.destroy_timer(timer)
 
     def _localization_reason(self, check_tf: bool) -> str:
         fix = self._position

@@ -5,6 +5,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import shutil
 import subprocess
@@ -206,17 +207,65 @@ def resume_autonomy():
 
 def inspect_mission_state():
     print(f'\nMission state for /{NAMESPACE}/mission_state (waiting up to 5 seconds):')
-    print('Mission status: 0=IDLE, 1=RUNNING, 2=PAUSED, 3=FINISHED, 4=FAILED, 5=ABORTED')
-    print('Command status: 0=WAITING, 1=RUNNING, 2=PAUSED, 3=FINISHED, 4=FAILED, 5=ABORTED')
-    print('command_ids and command_status are aligned; current_command_id is the active destination.')
-    result = run_command([
+    args = [
         'ros2', 'topic', 'echo', '--once', '--timeout', '5.0',
         '--qos-durability', 'transient_local',
         f'/{NAMESPACE}/mission_state', 'fleet_interfaces/msg/MissionState',
-    ])
-    if result != 0:
+    ]
+    try:
+        command = command_in_ros_environment(args)
+        result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=8)
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        print(f'Could not get mission state: {exc}')
+        return 1
+    if result.returncode != 0 or not result.stdout.strip():
+        detail = result.stderr.strip()
         print('No mission state received. Check that mission_server is running and publishing.')
-    return result
+        if detail:
+            print(f'Detail: {detail.splitlines()[-1]}')
+        return result.returncode or 1
+
+    message = result.stdout
+
+    def scalar(name, default='?'):
+        match = re.search(rf'(?m)^{re.escape(name)}:\s*(.*)$', message)
+        return match.group(1).strip().strip("'\"") if match else default
+
+    def sequence(name):
+        match = re.search(rf'(?ms)^{re.escape(name)}:\s*\n((?:\s+-\s+.*\n?)*)', message)
+        if not match:
+            return []
+        return [item.strip() for item in re.findall(r'^\s+-\s+(.*)$', match.group(1), re.M)]
+
+    mission_labels = {
+        '0': 'IDLE', '1': 'RUNNING', '2': 'PAUSED',
+        '3': 'FINISHED', '4': 'FAILED', '5': 'ABORTED',
+    }
+    command_labels = {
+        '0': 'WAITING', '1': 'RUNNING', '2': 'PAUSED',
+        '3': 'FINISHED', '4': 'FAILED', '5': 'ABORTED',
+    }
+    mission_status = scalar('mission_status')
+    current_id = scalar('current_command_id')
+    ready = scalar('ready').lower() == 'true'
+    print(f"Mission: {scalar('mission_id')} — {mission_labels.get(mission_status, f'UNKNOWN ({mission_status})')}")
+    print(f"Current command: {current_id}")
+    print(f"Readiness: {'READY' if ready else 'NOT READY'}")
+    if not ready and scalar('not_ready_reason', ''):
+        print(f"  Reason: {scalar('not_ready_reason')}")
+    if scalar('failure_reason', ''):
+        print(f"Failure: {scalar('failure_reason')}")
+
+    command_ids = sequence('command_ids')
+    command_statuses = sequence('command_status')
+    if command_ids:
+        print('Commands:')
+        for index, command_id in enumerate(command_ids):
+            status = command_statuses[index] if index < len(command_statuses) else '?'
+            marker = '  < current' if command_id == current_id else ''
+            label = command_labels.get(status, f'UNKNOWN ({status})')
+            print(f'  #{command_id}: {label}{marker}')
+    return 0
 
 
 def main():

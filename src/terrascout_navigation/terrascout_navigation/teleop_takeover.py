@@ -120,20 +120,19 @@ class TeleopTakeoverNode(Node):
         ):
             response.message = "operator commands arrived within the last second"
             return response
-        if self._manual:
-            if not self._mission_control.service_is_ready():
-                response.message = "mission control service is unavailable; manual control remains active"
-                return response
-            mission_request = ControlMission.Request()
-            mission_request.request = ControlMission.Request.RESUME
-            try:
-                mission_response = await self._mission_control.call_async(mission_request)
-            except Exception as error:
-                response.message = f"mission resume request failed; manual control remains active: {error}"
-                return response
-            if not mission_response.accepted and mission_response.reason != "no active mission":
-                response.message = mission_response.reason
-                return response
+        if not self._mission_control.service_is_ready():
+            response.message = "mission control service is unavailable; autonomy remains locked"
+            return response
+        mission_request = ControlMission.Request()
+        mission_request.request = ControlMission.Request.RESUME
+        try:
+            mission_response = await self._mission_control.call_async(mission_request)
+        except Exception as error:
+            response.message = f"mission resume request failed; autonomy remains locked: {error}"
+            return response
+        if not mission_response.accepted and mission_response.reason != "no active mission":
+            response.message = mission_response.reason
+            return response
         self.get_logger().warning("Autonomy resumed; manual control released")
         self._manual = False
         self._takeover_pub.publish(Bool(data=False))
