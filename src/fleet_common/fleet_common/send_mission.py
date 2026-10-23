@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import argparse
+import itertools
+import json
 import math
 import sys
 import time
@@ -74,21 +76,23 @@ def order_waypoints(
     coords: list[tuple[float, float, float]],
     mode: str,
     home: tuple[float, float],
+    return_home: tuple[float, float] | None = None,
 ) -> list[tuple[float, float, float]]:
     if mode != "unordered" or len(coords) < 2:
         return coords
-    remaining = list(coords)
-    ordered: list[tuple[float, float, float]] = []
-    current_lat, current_lon = home
-    while remaining:
-        next_index = min(
-            range(len(remaining)),
-            key=lambda i: _distance_sq_m(current_lat, current_lon, remaining[i][0], remaining[i][1]),
+    # The mission size is deliberately small (four destinations), so evaluate
+    # every ordering instead of choosing the locally nearest next waypoint.
+    # Score the complete closed route, including the return to mission start.
+    terminal = return_home or home
+
+    def route_length(route):
+        points = [(home[0], home[1]), *[(wp[0], wp[1]) for wp in route], terminal]
+        return sum(
+            math.sqrt(_distance_sq_m(a[0], a[1], b[0], b[1]))
+            for a, b in itertools.pairwise(points)
         )
-        waypoint = remaining.pop(next_index)
-        ordered.append(waypoint)
-        current_lat, current_lon = waypoint[0], waypoint[1]
-    return ordered
+
+    return list(min(itertools.permutations(coords), key=route_length))
 def _distance_sq_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     meters_per_deg_lat = 111_320.0
     mean_lat_rad = math.radians((lat1 + lat2) * 0.5)
@@ -159,7 +163,6 @@ def main() -> int:
     from sensor_msgs.msg import NavSatFix
     from std_srvs.srv import Trigger
     from std_msgs.msg import String
-    import json
     from rcl_interfaces.srv import SetParameters
     from rcl_interfaces.msg import Parameter as RosParameter, ParameterValue, ParameterType
     from fleet_common.qos import latched_qos
@@ -197,6 +200,22 @@ def main() -> int:
             rclpy.spin_once(node, timeout_sec=0.2)
             print("waypoint addition requested (check mission_server logs for acceptance)")
             return 0
+        if args.clear:
+            clear_client = node.create_client(Trigger, "clear_mission")
+            if not clear_client.wait_for_service(timeout_sec=5.0):
+                print("clear mission failed: clear_mission service unavailable", file=sys.stderr)
+                return 1
+            future = clear_client.call_async(Trigger.Request())
+            if not spin_until_future(rclpy.spin_once, node, future, 5.0):
+                print("clear mission failed: service response timed out after 5 s", file=sys.stderr)
+                return 1
+            response = future.result()
+            if response is None or not response.success:
+                print(f"clear mission failed: {response.message if response else 'no response'}", file=sys.stderr)
+                return 1
+            print(response.message)
+            return 0
+
         print("waiting for the mission server state...", flush=True)
         state_deadline = time.monotonic() + 15.0
         while readiness["reason"] is None and time.monotonic() < state_deadline:
@@ -220,21 +239,6 @@ def main() -> int:
                     file=sys.stderr,
                 )
                 return 1
-        if args.clear:
-            clear_client = node.create_client(Trigger, "clear_mission")
-            if not clear_client.wait_for_service(timeout_sec=5.0):
-                print("clear mission failed: clear_mission service unavailable", file=sys.stderr)
-                return 1
-            future = clear_client.call_async(Trigger.Request())
-            if not spin_until_future(rclpy.spin_once, node, future, 5.0):
-                print("clear mission failed: service response timed out after 5 s", file=sys.stderr)
-                return 1
-            response = future.result()
-            if response is None or not response.success:
-                print(f"clear mission failed: {response.message if response else 'no response'}", file=sys.stderr)
-                return 1
-            print(response.message)
-            return 0
         if args.sethome:
             setter = node.create_client(SetParameters, "mission_server/set_parameters")
             if not setter.wait_for_service(timeout_sec=5.0):
@@ -271,11 +275,26 @@ def main() -> int:
             print(f"home unavailable: invalid home data '{response.message}'", file=sys.stderr)
             return 1
         print(f"mission target: {home[0]:.7f},{home[1]:.7f}")
+        requested_coords = list(coords)
         coords = order_waypoints(coords, args.routing_mode, home)
         if args.routing_mode == "unordered":
-            print("waypoints reordered with --unordered based on nearest-next from home")
+            print("ordering decision:")
+            print(f"  mode: unordered")
+            print("  algorithm: exhaustive shortest closed tour using straight-line distances")
+            print("  requested waypoints: " + json.dumps([
+                {"latitude": lat, "longitude": lon} for lat, lon, _ in requested_coords
+            ]))
+            print("  selected waypoints: " + json.dumps([
+                {"latitude": lat, "longitude": lon} for lat, lon, _ in coords
+            ]))
+            print(
+                "  selection reason: evaluated each waypoint permutation from the robot's "
+                "start through all destinations and back to mission start; this does not "
+                "use Nav2 planned-path lengths or obstacle-aware reachability"
+            )
         plan = MissionPlan()
         plan.id = args.mission_id
+        plan.order_mode = args.routing_mode
         for item in build_plan_items(
             coords,
             args.altitude,

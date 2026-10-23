@@ -186,6 +186,26 @@ Current experimental navigation tuning is in `src/terrascout_navigation/config/n
 
 **Mission route length:** the fleet configuration permits mission legs and home distances up to 200 m. The rolling global costmap is 110 m × 110 m; the mission server stages each longer destination through intermediate goals sized at 38.5 m under the current configuration. Every segment still requires a valid Nav2 path, and the mission destination is not marked complete until its actual goal is reached. Confirm rendered parameters and test long routes, blocked segments, cancellation, and backtracking. Increasing costmap dimensions increases memory and planning workload.
 
+### Mission ordering and keepout updates
+
+- `ordered` missions preserve the submitted waypoint sequence, including after a keepout-zone update. The next waypoint remains the next eligible destination in that order.
+- `unordered` missions optimize the full remaining route after a keepout-zone update, using straight-line geographic distance and the configured mission start/return point. Destinations inside keepout zones are excluded as failed before reordering.
+- If an updated keepout covers the active waypoint, the mission server cancels/stops that active navigation goal before marking the waypoint failed and continuing under the configured waypoint-failure policy. Future blocked waypoints are skipped.
+- Nav2 replans each active leg using its costmaps, independently of the mission-level order optimizer. The optimizer does not score Nav2 path lengths or establish reachability; a selected route can still contain an unreachable leg.
+
+For validation, test both modes with a keepout covering (1) the active destination and (2) a future destination. Confirm ordered missions retain their remaining sequence, unordered missions update their selected order when needed, and blocked commands appear as failed in mission state/visualization. A successful build does not prove live Nav2 obstacle updates or cancellation timing; verify these in simulation.
+
+### MPR-09 policy proposal — project-owner approval required
+
+This is a draft for review, not evidence of approval. Before assessed trials, the project owner must approve the policy and the team must record the approver, date, and approved revision here or in the trial procedure.
+
+1. **Ordering:** an ordered mission follows its submitted sequence. An unordered mission selects the remaining route with the shortest complete straight-line tour from the current position through eligible destinations and back to mission start. Recalculate the unordered remainder after a keepout update makes a destination invalid. This is a geographic-distance heuristic; it does not compare Nav2 planned path lengths and does not prove reachability.
+2. **Keepout updates:** apply each accepted named-zone add/update/removal to Nav2. If the active destination lies inside a new zone, cancel its goal, wait for cancellation, mark that command failed with the zone/reason, then continue. Mark future destinations inside the zone failed before selecting a new unordered order. Ordered routes retain their remaining order.
+3. **Unreachable destination / recovery period:** allow the configured Nav2 behavior-tree recoveries to complete, then make one mission-layer retry of the same waypoint after the configured 2.0 s delay (`waypoint_retry_limit: 1`). If that attempt also fails, record the command ID, outcome, and failure reason; mark it failed and continue to the next eligible positional command when `continue_after_waypoint_failure` is true. If no eligible destination remains, fail the mission rather than silently treating the route as complete. The approved procedure must confirm that this retry window is the intended recovery period.
+4. **Restoration:** after operator takeover or process restart, keep autonomy suspended. Resume only after explicit operator request, valid/fresh localization, navigation readiness, and a fresh successful path to the current destination. Do not automatically resume or navigate home while localization is invalid.
+
+**Approval record:** `Pending — obtain project-owner approval before marking MPR-09 or MIS-15 complete.` Run and retain tests for each rule, then conduct scripted simulation checks and the required assessed-trial validation. MIS-06 likewise remains unverified against its 2 s stop deadline until a recorded fault-injection test measures localization-loss detection through confirmed zero motion.
+
 ## 6. Quick Checklist for a New Development PC
 
 Before running the simulation on another computer on the same network:

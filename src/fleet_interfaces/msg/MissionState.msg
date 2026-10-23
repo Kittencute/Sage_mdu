@@ -21,6 +21,10 @@ int32 current_command_id
 int32[] command_ids
 # COMMAND_* value of each command, in the order of command_ids
 uint8[] command_status
+# Failure reason for each command; aligned with command_ids, empty if none
+string[] command_failure_reasons
+# Reason for the most recent selected-order change; empty if unchanged
+string order_change_reason
 # MISSION_* value
 uint8 mission_status
 

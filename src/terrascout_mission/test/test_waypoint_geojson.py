@@ -32,10 +32,15 @@ def test_all_pending():
     for p in points:
         assert p["properties"]["style"]["color"] == BLUE
 
-    # One pending line covering all waypoints
-    assert len(lines) == 1
-    assert lines[0]["properties"]["style"]["color"] == BLUE
-    assert len(lines[0]["geometry"]["coordinates"]) == 3
+    # Pending route is represented as adjacent waypoint-to-waypoint segments.
+    assert len(lines) == 2
+    assert all(line["properties"]["style"]["color"] == BLUE for line in lines)
+    assert [line["geometry"]["coordinates"] for line in lines] == [
+        [[WAYPOINTS[0]["lon"], WAYPOINTS[0]["lat"]],
+         [WAYPOINTS[1]["lon"], WAYPOINTS[1]["lat"]]],
+        [[WAYPOINTS[1]["lon"], WAYPOINTS[1]["lat"]],
+         [WAYPOINTS[2]["lon"], WAYPOINTS[2]["lat"]]],
+    ]
 
 
 def test_mid_route():

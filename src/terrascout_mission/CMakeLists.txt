@@ -31,6 +31,11 @@ if(BUILD_TESTING)
     test/test_route_staging.py
     APPEND_ENV PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}
   )
+  ament_add_pytest_test(
+    test_mission_waypoint_policy
+    test/test_mission_waypoint_policy.py
+    APPEND_ENV PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}
+  )
 endif()
 
 ament_package()

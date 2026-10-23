@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[4]
 RECORDINGS_ROOT = WORKSPACE_ROOT / ".sage" / "run" / "1" / "recordings" / "terrascout1"
+ARCHIVED_RECORDINGS_ROOT = WORKSPACE_ROOT / "runs"
 RESULTS_ROOT = WORKSPACE_ROOT / "src" / "terrascout_mission_tester" / "mission_results"
 SCRIPT_DIR = Path(__file__).resolve().parent
 STOCKHOLM = ZoneInfo("Europe/Stockholm")
@@ -84,10 +85,17 @@ def main() -> int:
 
     bag = args.bag
     if bag is None:
-        bags = [metadata.parent for metadata in RECORDINGS_ROOT.glob("**/metadata.yaml")]
-        if not bags:
-            parser.error(f"No completed bag found under {RECORDINGS_ROOT}")
-        bag = max(bags, key=lambda path: path.stat().st_mtime)
+        metadata_files = list(RECORDINGS_ROOT.glob("**/metadata.yaml"))
+        metadata_files.extend(
+            ARCHIVED_RECORDINGS_ROOT.glob("*/recordings/terrascout1/**/metadata.yaml")
+        )
+        if not metadata_files:
+            parser.error(
+                "No completed bag found. Expected metadata.yaml under "
+                f"{RECORDINGS_ROOT} or archived runs in {ARCHIVED_RECORDINGS_ROOT}"
+            )
+        newest_metadata = max(metadata_files, key=lambda path: path.stat().st_mtime)
+        bag = newest_metadata.parent
     bag = bag.resolve()
     if not (bag / "metadata.yaml").is_file():
         parser.error(f"Bag directory has no metadata.yaml: {bag}")

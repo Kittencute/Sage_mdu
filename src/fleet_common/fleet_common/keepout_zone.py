@@ -45,13 +45,18 @@ def main() -> int:
         action="store_true",
         help="Read and print the zone for --label",
     )
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        help="List all keepout zones",
+    )
     args = parser.parse_args()
 
-    if args.clear and args.read:
-        parser.error("--clear and --read are mutually exclusive")
+    if sum((args.clear, args.read, args.list)) > 1:
+        parser.error("--clear, --read, and --list are mutually exclusive")
 
     try:
-        if not args.clear and not args.read:
+        if not args.clear and not args.read and not args.list:
             _finite(args.latitude, "latitude")
             _finite(args.longitude, "longitude")
             _positive(args.x_length, "x-length")
@@ -61,18 +66,47 @@ def main() -> int:
         parser.error(str(exc))
 
     import rclpy
-    from fleet_interfaces.srv import GetKeepoutZone, SetKeepoutZone
+    from fleet_interfaces.srv import GetKeepoutZone, ListKeepoutZones, SetKeepoutZone
 
     rclpy.init()
     node = rclpy.create_node("keepout_zone", namespace=args.namespace)
-    if args.read:
+    if args.list:
+        list_client = node.create_client(ListKeepoutZones, "list_keepout_zones")
+        get_client = None
+        set_client = None
+    elif args.read:
         get_client = node.create_client(GetKeepoutZone, "get_keepout_zone")
+        list_client = None
         set_client = None
     else:
         set_client = node.create_client(SetKeepoutZone, "set_keepout_zone")
         get_client = None
+        list_client = None
 
     try:
+        if args.list:
+            print("waiting for keepout server")
+            while not list_client.wait_for_service(timeout_sec=1.0):
+                pass
+            future = list_client.call_async(ListKeepoutZones.Request())
+            rclpy.spin_until_future_complete(node, future)
+            response = future.result()
+            if response is None:
+                print("list keepout zones failed: cause: no service response", file=sys.stderr)
+                return 1
+            if not response.labels:
+                print("No keepout zones are configured.")
+                return 0
+            print("Keepout zones:")
+            for index, label in enumerate(response.labels):
+                active = "active" if response.active[index] else "inactive"
+                print(
+                    f"- {label}: lat={response.latitudes[index]:.7f}, "
+                    f"lon={response.longitudes[index]:.7f}; "
+                    f"size={response.x_lengths[index]:.2f}x{response.y_lengths[index]:.2f} m; "
+                    f"yaw={response.yaw_degs[index]:.1f} deg; {active}"
+                )
+            return 0
         if args.read:
             print("waiting for keepout server")
             while not get_client.wait_for_service(timeout_sec=1.0):

@@ -75,6 +75,7 @@ def plan_from_mission(mission: MissionSend, vehicle_type: VehicleType) -> Missio
     _require_finite([home.latitude, home.longitude, home.altitude], "home location")
     _require_coordinates(home.latitude, home.longitude, "home location")
     plan = MissionPlan()
+    plan.order_mode = "ordered"
     plan.id = mission.id
     plan.home = GeoPoint(
         latitude=mission.homeLocation.latitude,

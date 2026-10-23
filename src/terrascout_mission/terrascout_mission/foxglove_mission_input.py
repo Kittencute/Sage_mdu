@@ -155,6 +155,7 @@ class FoxgloveMissionInput:
             longitude=self._position.longitude,
             altitude=0.0,
         )
+        plan.order_mode = "unordered" if unordered else "ordered"
         commands = []
         for item in build_plan_items(coords, altitude=10.0):
             command = MissionCommand()

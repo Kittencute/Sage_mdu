@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import copy
 import math
 
 import rclpy
@@ -9,7 +10,8 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import qos_profile_sensor_data
-from sensor_msgs.msg import NavSatFix
+from sensor_msgs.msg import NavSatFix, NavSatStatus
+from std_srvs.srv import SetBool
 from tf2_ros import StaticTransformBroadcaster
 
 from fleet_common import signals
@@ -28,6 +30,11 @@ class GnssShimNode(Node):
         self.odom_enu_pub = self.create_publisher(Odometry, "fixposition/odometry_enu", 10)
         self.odom_smooth_pub = self.create_publisher(Odometry, "fixposition/odometry_smooth", 10)
         self.llh_pub = self.create_publisher(NavSatFix, "fixposition/odometry_llh", 10)
+        self._localization_fault = False
+        self._latest_fix: NavSatFix | None = None
+        self._fault_service = self.create_service(
+            SetBool, "gnss_shim/set_localization_fault", self._set_localization_fault
+        )
 
         self.datum_pub = self.create_publisher(NavSatFix, "fixposition/datum", latched_qos())
 
@@ -142,6 +149,32 @@ class GnssShimNode(Node):
                 0.0, 0.0, variance,
             ]
             fix.position_covariance_type = NavSatFix.COVARIANCE_TYPE_DIAGONAL_KNOWN
+        self._latest_fix = fix
+        if self._localization_fault:
+            self._publish_invalid_fix()
+        else:
+            self.llh_pub.publish(fix)
+
+    def _set_localization_fault(self, request, response):
+        """Inject an invalid NavSatFix in simulation, or resume normal forwarding."""
+        self._localization_fault = request.data
+        if self._localization_fault:
+            self._publish_invalid_fix()
+            response.success = True
+            response.message = "simulation localization fault injected (NavSatFix status=NO_FIX)"
+            self.get_logger().warning(response.message)
+        else:
+            if self._latest_fix is not None:
+                self.llh_pub.publish(self._latest_fix)
+            response.success = True
+            response.message = "simulation localization fault cleared; forwarding Gazebo fixes"
+            self.get_logger().info(response.message)
+        return response
+
+    def _publish_invalid_fix(self):
+        fix = copy.deepcopy(self._latest_fix) if self._latest_fix is not None else NavSatFix()
+        fix.header.stamp = self.get_clock().now().to_msg()
+        fix.status.status = NavSatStatus.STATUS_NO_FIX
         self.llh_pub.publish(fix)
 
 

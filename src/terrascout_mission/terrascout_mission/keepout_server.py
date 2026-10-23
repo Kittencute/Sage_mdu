@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import rclpy
-from fleet_interfaces.srv import GetKeepoutZone, SetKeepoutZone
+from fleet_interfaces.srv import GetKeepoutZone, ListKeepoutZones, SetKeepoutZone
 from geometry_msgs.msg import Point32, PolygonStamped
 from nav2_msgs.srv import ClearEntireCostmap
 from rclpy.node import Node
@@ -102,8 +102,8 @@ class KeepoutServer(Node):
         )
         self._datum: NavSatFix | None = None
         self._zones: dict[str, KeepoutZone] = {}
-        self._active_label: str | None = None
-        self._active_points: list[tuple[float, float, float]] = []
+        # All configured zones are active together; retained active_label snapshots
+        # are accepted for backward compatibility only.
         namespace = self.get_namespace().strip("/") or "default"
         self._snapshot_path = Path("/run/sage") / namespace / "keepout_zones.json"
 
@@ -119,6 +119,7 @@ class KeepoutServer(Node):
         self.create_subscription(NavSatFix, self._datum_topic, self._on_datum, latched_qos())
         self.create_service(SetKeepoutZone, "set_keepout_zone", self._on_set_keepout_zone)
         self.create_service(GetKeepoutZone, "get_keepout_zone", self._on_get_keepout_zone)
+        self.create_service(ListKeepoutZones, "list_keepout_zones", self._on_list_keepout_zones)
         self.create_timer(self._publish_period_s, self._republish_active_zone)
 
     def _on_datum(self, msg: NavSatFix) -> None:
@@ -135,14 +136,9 @@ class KeepoutServer(Node):
                 zone = self._zones.pop(request.label, None)
                 if zone is None:
                     raise ValueError(f"zone '{request.label}' not found")
-                if self._active_label == request.label:
-                    self._active_label = None
-                    self._active_points = []
-                    self._zone_pub.publish(PolygonStamped(header=self._header()))
-                    self._obstacle_pub.publish(self._pointcloud([]))
-                    self._marker_pub.publish(self._marker(action=Marker.DELETE))
-                    self._request_costmap_clear()
                 self._save_zones()
+                self._republish_active_zone()
+                self._request_costmap_clear()
                 response.accepted = True
                 response.reason = f"zone '{request.label}' deleted"
                 self.get_logger().info(response.reason)
@@ -183,16 +179,9 @@ class KeepoutServer(Node):
                 polygon=polygon,
                 points=points,
             )
-            self._active_label = request.label
-            self._active_points = points
             self._save_zones()
-
-            msg = PolygonStamped()
-            msg.header = self._header()
-            msg.polygon.points = [Point32(x=x, y=y, z=0.0) for x, y in polygon]
-            self._zone_pub.publish(msg)
-            self._obstacle_pub.publish(self._pointcloud(points))
-            self._marker_pub.publish(self._marker(zone=self._zones[request.label], label=request.label))
+            self._request_costmap_clear()
+            self._republish_active_zone()
 
             response.accepted = True
             action = "updated" if existed else "created"
@@ -209,7 +198,7 @@ class KeepoutServer(Node):
 
     def _save_zones(self) -> None:
         payload = {
-            "active_label": self._active_label,
+            "active_labels": sorted(self._zones),
             "zones": [{"label": z.label, "latitude": z.latitude,
                        "longitude": z.longitude, "x_length": z.x_length,
                        "y_length": z.y_length, "yaw_deg": z.yaw_deg}
@@ -228,7 +217,6 @@ class KeepoutServer(Node):
         except (OSError, json.JSONDecodeError) as error:
             self.get_logger().error(f"could not restore keepout zones: {error}")
             return
-        active_label = payload.get("active_label")
         for item in payload.get("zones", []):
             request = SetKeepoutZone.Request()
             request.label = item["label"]
@@ -240,9 +228,6 @@ class KeepoutServer(Node):
             response = self._on_set_keepout_zone(request, SetKeepoutZone.Response())
             if not response.accepted:
                 self.get_logger().error(f"could not restore keepout: {response.reason}")
-        self._active_label = active_label if active_label in self._zones else None
-        active = self._zones.get(self._active_label or "")
-        self._active_points = active.points if active else []
         self._save_zones()
         self._republish_active_zone()
         self.get_logger().info(f"restored {len(self._zones)} keepout zones")
@@ -261,20 +246,29 @@ class KeepoutServer(Node):
         response.x_length = zone.x_length
         response.y_length = zone.y_length
         response.yaw_deg = zone.yaw_deg
-        response.active = self._active_label == zone.label
+        response.active = True
+        return response
+
+    def _on_list_keepout_zones(self, request, response):
+        for label, zone in sorted(self._zones.items()):
+            response.labels.append(label)
+            response.latitudes.append(zone.latitude)
+            response.longitudes.append(zone.longitude)
+            response.x_lengths.append(zone.x_length)
+            response.y_lengths.append(zone.y_length)
+            response.yaw_degs.append(zone.yaw_deg)
+            response.active.append(True)
         return response
 
     def _republish_active_zone(self) -> None:
-        active_zone = self._zones.get(self._active_label or "")
-        if active_zone is not None:
-            msg = PolygonStamped()
-            msg.header = self._header()
-            msg.polygon.points = [Point32(x=x, y=y, z=0.0) for x, y in active_zone.polygon]
-            self._zone_pub.publish(msg)
-            self._marker_pub.publish(self._marker(zone=active_zone, label=active_zone.label))
-        else:
-            self._marker_pub.publish(self._marker(action=Marker.DELETE))
-        self._obstacle_pub.publish(self._pointcloud(self._active_points))
+        points = []
+        self._marker_pub.publish(self._marker(action=Marker.DELETEALL))
+        for marker_id, zone in enumerate(sorted(self._zones.values(), key=lambda item: item.label)):
+            points.extend(zone.points)
+            self._marker_pub.publish(
+                self._marker(zone=zone, label=zone.label, marker_id=marker_id)
+            )
+        self._obstacle_pub.publish(self._pointcloud(points))
 
     def _pointcloud(self, points: list[tuple[float, float, float]]) -> PointCloud2:
         msg = PointCloud2()
@@ -311,11 +305,12 @@ class KeepoutServer(Node):
         zone: KeepoutZone | None = None,
         label: str = "",
         action: int = Marker.ADD,
+        marker_id: int = 0,
     ) -> Marker:
         marker = Marker()
         marker.header = self._header()
         marker.ns = "keepout_zone"
-        marker.id = 0
+        marker.id = marker_id
         marker.action = action
         marker.type = Marker.CUBE
         marker.lifetime.sec = 0

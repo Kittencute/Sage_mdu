@@ -16,6 +16,7 @@ set(FLEET_INTERFACES_MSG_FILES
   action/ExecuteMission.action
   srv/ControlMission.srv
   srv/GetKeepoutZone.srv
+  srv/ListKeepoutZones.srv
   srv/SetKeepoutZone.srv
 )
 

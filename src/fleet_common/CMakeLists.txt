@@ -28,6 +28,11 @@ if(BUILD_TESTING)
     test/test_mission_json.py
     APPEND_ENV PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}
   )
+  ament_add_pytest_test(
+    test_waypoint_geojson
+    test/test_waypoint_geojson.py
+    APPEND_ENV PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}
+  )
 endif()
 
 ament_package()

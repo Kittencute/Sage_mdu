@@ -41,6 +41,7 @@ from fleet_common.geodesy import llh_to_enu, enu_to_map
 from fleet_common.params import declare
 from fleet_common.qos import latched_qos
 from fleet_common.waypoint_geojson import build_waypoints_geojson
+from fleet_common.send_mission import order_waypoints
 from terrascout_mission.foxglove_mission_input import FoxgloveMissionInput
 from terrascout_mission.route_staging import next_navigation_segment, next_path_segment
 POSITION_KINDS = frozenset({MissionCommand.WAYPOINT, MissionCommand.HOME})
@@ -57,6 +58,7 @@ TERMINAL_GOAL_STATUSES = frozenset(
 )
 CANCELLED_BY_MANAGER = "cancelled by the manager"
 OPERATOR_TOOK_OVER = "operator took over"
+LOCALIZATION_FAULT_PREFIX = "localization fault:"
 STOP_OVERDUE = (
     f"stop navigation failed: cause: navigate_to_pose did not end the goal "
     f"within {STOP_TIMEOUT_S} s"
@@ -92,12 +94,16 @@ class _Mission:
     status: list[int]
     waypoints: list[dict[str, float]]
     start_position: dict[str, float]
+    command_failure_reasons: list[str] = field(default_factory=list)
+    order_change_reason: str = ""
     result: Future = field(default_factory=Future)
     phase: Phase = Phase.NAVIGATING
     index: int = 0
     navigation: _Navigation | None = None
     waypoint_retries: int = 0
     retry_after: Time | None = None
+    keepout_blocked_reason: str = ""
+    unreachable_since: Time | None = None
     last_reached_point: int = 0
     backtrack_pending: bool = False
     resume_command_index: int | None = None
@@ -225,6 +231,9 @@ class GroundMissionServer(Node):
         self._last_mission_start: tuple[float, float] | None = None
         namespace = self.get_namespace().strip("/") or "default"
         self._snapshot_path = Path("/run/sage") / namespace / "mission_state.json"
+        self._keepout_snapshot_path = self._snapshot_path.with_name("keepout_zones.json")
+        self._keepout_snapshot_mtime_ns: int | None = None
+        self._keepout_snapshot_mtime_ns = self._keepout_mtime_ns()
         self._last_failure_reason = ""
         self._recovered_failure_reason = ""
         self._clear_pending = False
@@ -291,6 +300,14 @@ class GroundMissionServer(Node):
     def _write_snapshot(self, mission: _Mission | None, status: int | None = None) -> None:
         if mission is None:
             return
+        keepout_path = self._snapshot_path.with_name("keepout_zones.json")
+        try:
+            keepouts = json.loads(keepout_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            keepouts = {"active_label": None, "zones": []}
+        except (OSError, json.JSONDecodeError) as error:
+            self.get_logger().error(f"could not include keepout snapshot in mission state: {error}")
+            keepouts = {"active_label": None, "zones": [], "snapshot_error": str(error)}
         payload = {
             "mission_id": mission.plan.id,
             "home": [mission.plan.home.latitude, mission.plan.home.longitude,
@@ -303,6 +320,11 @@ class GroundMissionServer(Node):
                 for c in mission.plan.commands
             ],
             "command_status": list(mission.status),
+            "command_failure_reasons": list(mission.command_failure_reasons),
+            "selected_order": [command.id for command in mission.plan.commands],
+            "order_mode": getattr(mission.plan, "order_mode", "ordered") or "ordered",
+            "order_change_reason": mission.order_change_reason,
+            "keepouts": keepouts,
             "current_index": mission.index,
             "mission_status": status if status is not None else MissionState.MISSION_PAUSED,
             "phase": "paused" if status == MissionState.MISSION_PAUSED else "terminal" if status in (
@@ -342,6 +364,9 @@ class GroundMissionServer(Node):
                             msg.current_command_id = command_ids[index]
                             msg.command_ids = command_ids
                             msg.command_status = list(payload["command_status"])
+                            msg.command_failure_reasons = list(
+                                payload.get("command_failure_reasons", [""] * len(command_ids))
+                            )
                             msg.mission_status = int(payload["mission_status"])
                             msg.failure_reason = payload.get("failure_reason", "")
                             self._last_failure_reason = msg.failure_reason
@@ -353,6 +378,7 @@ class GroundMissionServer(Node):
                 )
             plan = MissionPlan()
             plan.id = int(payload["mission_id"])
+            plan.order_mode = payload.get("order_mode", "ordered")
             plan.home = GeoPoint(latitude=payload["home"][0], longitude=payload["home"][1],
                                  altitude=payload["home"][2])
             commands = []
@@ -377,6 +403,10 @@ class GroundMissionServer(Node):
                           enumerate(positions, start=1)}, status=statuses,
                 start_position=payload.get("start_position", {}),
                 waypoints=payload.get("waypoints", []), phase=Phase.PAUSED, index=index,
+                command_failure_reasons=list(
+                    payload.get("command_failure_reasons", [""] * len(commands))
+                ),
+                order_change_reason=str(payload.get("order_change_reason", "")),
             )
             self._last_failure_reason = payload.get("failure_reason", "")
             self._recovered_failure_reason = self._last_failure_reason
@@ -514,6 +544,15 @@ class GroundMissionServer(Node):
         cause = self._rejection(plan)
         if cause:
             self.get_logger().error(f"accept mission {plan.id} failed: cause: {cause}")
+            rejected = MissionState()
+            rejected.mission_id = plan.id
+            rejected.command_ids = [command.id for command in plan.commands]
+            rejected.command_status = [MissionState.COMMAND_FAILED] * len(plan.commands)
+            rejected.command_failure_reasons = [cause] * len(plan.commands)
+            rejected.current_command_id = plan.commands[0].id if plan.commands else -1
+            rejected.mission_status = MissionState.MISSION_FAILED
+            rejected.failure_reason = cause
+            self._publish(rejected)
             return GoalResponse.REJECT
         return GoalResponse.ACCEPT
     def _rejection(self, plan: MissionPlan) -> str:
@@ -525,12 +564,156 @@ class GroundMissionServer(Node):
             return f"mission {self._mission.plan.id} is active"
         if not plan.commands:
             return "no commands"
+        command_ids = [command.id for command in plan.commands]
+        if len(command_ids) != len(set(command_ids)):
+            return "mission contains duplicate command IDs"
+        home_commands = [
+            command for command in plan.commands
+            if command.kind == MissionCommand.HOME
+        ]
+        if len(home_commands) > 1:
+            return "mission may include only one HOME destination"
         for command in plan.commands:
             if command.kind not in POSITION_KINDS and command.kind not in INSTANT_KINDS:
                 return f"command {command.id} has unsupported kind {command.kind}"
+            if command.kind == MissionCommand.WAYPOINT:
+                if not all(math.isfinite(value) for value in (
+                    command.latitude, command.longitude, command.altitude_agl,
+                    command.acceptance_radius_m,
+                )):
+                    return f"waypoint command {command.id} has non-finite destination values"
+                if not (-90.0 <= command.latitude <= 90.0):
+                    return f"waypoint command {command.id} latitude is outside [-90, 90]"
+                if not (-180.0 <= command.longitude <= 180.0):
+                    return f"waypoint command {command.id} longitude is outside [-180, 180]"
+                if command.altitude_agl < 0.0:
+                    return f"waypoint command {command.id} altitude is negative"
+                if command.acceptance_radius_m < 0.0:
+                    return f"waypoint command {command.id} acceptance radius is negative"
+                if not (math.isfinite(command.yaw_deg) or math.isnan(command.yaw_deg)):
+                    return f"waypoint command {command.id} has an invalid yaw"
+        home = plan.home
+        if not all(math.isfinite(value) for value in (home.latitude, home.longitude, home.altitude)):
+            return "mission home has non-finite coordinates"
+        if not (-90.0 <= home.latitude <= 90.0 and -180.0 <= home.longitude <= 180.0):
+            return "mission home coordinates are outside valid WGS84 bounds"
         if self._position.status.status < NavSatStatus.STATUS_FIX:
             return f"robot position status {self._position.status.status} is not a fix"
-        return self._leg_rejection(plan)
+        _, keepout_error = self._keepout_zones()
+        if keepout_error:
+            return keepout_error
+        keepout_error = self._home_keepout_rejection(plan)
+        if keepout_error:
+            return keepout_error
+        return ""
+
+    def _keepout_zones(self) -> tuple[list[dict], str]:
+        try:
+            payload = json.loads(
+                self._snapshot_path.with_name("keepout_zones.json").read_text(encoding="utf-8")
+            )
+        except FileNotFoundError:
+            return [], ""
+        except (OSError, json.JSONDecodeError) as error:
+            return [], f"cannot validate keepouts: keepout snapshot is unreadable ({error})"
+
+        if not isinstance(payload, dict):
+            return [], "cannot validate keepouts: keepout snapshot root must be an object"
+        zones = payload.get("zones", [])
+        if not isinstance(zones, list):
+            return [], "cannot validate keepouts: keepout zones must be a list"
+        for zone in zones:
+            if not isinstance(zone, dict):
+                return [], "cannot validate keepouts: malformed keepout zone entry"
+            try:
+                label = str(zone["label"])
+                latitude = float(zone["latitude"])
+                longitude = float(zone["longitude"])
+                if not (-90.0 <= latitude <= 90.0 and -180.0 <= longitude <= 180.0):
+                    raise ValueError("zone center is outside valid WGS84 bounds")
+                if not label.strip():
+                    raise ValueError("zone label must not be empty")
+                center = self._map_point(latitude, longitude)
+                x_length = float(zone["x_length"])
+                y_length = float(zone["y_length"])
+                yaw = math.radians(float(zone["yaw_deg"]))
+                if not all(math.isfinite(value) for value in (*center, x_length, y_length, yaw)):
+                    raise ValueError("zone geometry contains non-finite values")
+                if x_length <= 0.0 or y_length <= 0.0:
+                    raise ValueError("zone dimensions must be positive")
+            except (KeyError, TypeError, ValueError) as error:
+                return [], f"cannot validate keepout zone: malformed keepout snapshot ({error})"
+        return zones, ""
+
+    def _destination_keepout_reason(
+        self, latitude: float, longitude: float, radius: float, zones: list[dict]
+    ) -> str:
+        point_x, point_y = self._map_point(latitude, longitude)
+        for zone in zones:
+            center = self._map_point(float(zone["latitude"]), float(zone["longitude"]))
+            yaw = math.radians(float(zone["yaw_deg"]))
+            dx, dy = point_x - center[0], point_y - center[1]
+            local_x = math.cos(yaw) * dx + math.sin(yaw) * dy
+            local_y = -math.sin(yaw) * dx + math.cos(yaw) * dy
+            if (
+                abs(local_x) <= float(zone["x_length"]) / 2.0 + radius
+                and abs(local_y) <= float(zone["y_length"]) / 2.0 + radius
+            ):
+                return f"destination lies inside keepout zone '{zone['label']}'"
+        return ""
+
+    def _home_keepout_rejection(self, plan: MissionPlan) -> str:
+        if not any(command.kind == MissionCommand.HOME for command in plan.commands):
+            return ""
+        zones, error = self._keepout_zones()
+        if error:
+            return error
+        home_command = next(
+            command for command in plan.commands if command.kind == MissionCommand.HOME
+        )
+        reason = self._destination_keepout_reason(
+            plan.home.latitude, plan.home.longitude,
+            max(0.0, home_command.acceptance_radius_m), zones,
+        )
+        return f"HOME destination {reason}" if reason else ""
+
+    def _invalid_waypoint_reasons(self, plan: MissionPlan) -> dict[int, str]:
+        """Return per-command validation failures without rejecting the mission."""
+        zones, error = self._keepout_zones()
+        if error:
+            return {
+                index: error for index, command in enumerate(plan.commands)
+                if command.kind == MissionCommand.WAYPOINT
+            }
+        reasons: dict[int, str] = {}
+        for index, command in enumerate(plan.commands):
+            if command.kind != MissionCommand.WAYPOINT:
+                continue
+            values = (command.latitude, command.longitude, command.altitude_agl,
+                      command.acceptance_radius_m)
+            if not all(math.isfinite(value) for value in values):
+                reasons[index] = f"waypoint command {command.id} has non-finite destination values"
+                continue
+            if not (-90.0 <= command.latitude <= 90.0):
+                reasons[index] = f"waypoint command {command.id} latitude is outside [-90, 90]"
+                continue
+            if not (-180.0 <= command.longitude <= 180.0):
+                reasons[index] = f"waypoint command {command.id} longitude is outside [-180, 180]"
+                continue
+            if command.altitude_agl < 0.0 or command.acceptance_radius_m < 0.0:
+                reasons[index] = f"waypoint command {command.id} has a negative altitude or acceptance radius"
+                continue
+            if not (math.isfinite(command.yaw_deg) or math.isnan(command.yaw_deg)):
+                reasons[index] = f"waypoint command {command.id} has an invalid yaw"
+                continue
+            reason = self._destination_keepout_reason(
+                command.latitude, command.longitude,
+                command.acceptance_radius_m, zones,
+            )
+            if reason:
+                reasons[index] = f"waypoint command {command.id} {reason}"
+                continue
+        return reasons
     def _leg_rejection(self, plan: MissionPlan) -> str:
         positions, points = self._plan_points(plan)
         route = [self._map_point(self._position.latitude, self._position.longitude), *points[1:]]
@@ -549,31 +732,44 @@ class GroundMissionServer(Node):
                     f"{name} is {distance:.1f} m from home, farther than {self._max_leg_length_m} m"
                 )
         return ""
-    def _plan_points(self, plan: MissionPlan) -> tuple[list[int], list[tuple[float, float]]]:
+    def _plan_points(
+        self, plan: MissionPlan, invalid_waypoints: dict[int, str] | None = None
+    ) -> tuple[list[int], list[tuple[float, float]]]:
+        invalid_waypoints = invalid_waypoints or {}
         positions = [
             index for index, command in enumerate(plan.commands) if command.kind in POSITION_KINDS
         ]
         targets = [plan.home] + [
-            plan.home if plan.commands[index].kind == MissionCommand.HOME else plan.commands[index]
+            plan.home if (
+                plan.commands[index].kind == MissionCommand.HOME
+                or index in invalid_waypoints
+            ) else plan.commands[index]
             for index in positions
         ]
         return positions, [self._map_point(target.latitude, target.longitude) for target in targets]
     def _on_accepted(self, goal_handle) -> None:
         plan = goal_handle.request.plan
-        positions, points = self._plan_points(plan)
+        invalid_waypoints = self._invalid_waypoint_reasons(plan)
+        positions, points = self._plan_points(plan, invalid_waypoints)
+        statuses = [MissionState.COMMAND_WAITING] * len(plan.commands)
+        failure_reasons = [""] * len(plan.commands)
+        for index, reason in invalid_waypoints.items():
+            statuses[index] = MissionState.COMMAND_FAILED
+            failure_reasons[index] = reason
         mission = _Mission(
             plan=plan,
             goal=goal_handle,
             points=points,
             yaws=goal_yaws(points),
             point_of={index: point for point, index in enumerate(positions, start=1)},
-            status=[MissionState.COMMAND_WAITING] * len(plan.commands),
+            status=statuses,
             start_position={"lat": self._position.latitude, "lon": self._position.longitude},
             waypoints=[
                 {"lat": command.latitude, "lon": command.longitude}
                 for command in plan.commands
                 if command.kind == MissionCommand.WAYPOINT
             ],
+            command_failure_reasons=failure_reasons,
         )
         self._last_mission_start = (self._position.latitude, self._position.longitude)
         self._last_failure_reason = ""
@@ -584,6 +780,10 @@ class GroundMissionServer(Node):
         self._results[bytes(goal_handle.goal_id.uuid)] = mission.result
         goal_handle.execute()
         self.get_logger().info(f"mission {plan.id} started with {len(plan.commands)} commands")
+        for index, reason in invalid_waypoints.items():
+            self.get_logger().warning(
+                f"waypoint command {plan.commands[index].id} rejected individually: {reason}"
+            )
         self._publish_geojson(mission, 0)
         self._start_command(mission)
     async def _execute(self, goal_handle) -> ExecuteMission.Result:
@@ -617,6 +817,7 @@ class GroundMissionServer(Node):
             if mode not in ("ordered", "unordered") or not (-90 <= lat <= 90 and -180 <= lon <= 180):
                 raise ValueError("invalid coordinates or mode")
             commands = list(mission.plan.commands)
+            previous_order = [command.id for command in commands]
             # Preserve the active target, reorder only future waypoint commands.
             future_indices = [i for i in range(mission.index + 1, len(commands))
                               if commands[i].kind == MissionCommand.WAYPOINT]
@@ -632,13 +833,20 @@ class GroundMissionServer(Node):
                     current = (active.latitude, active.longitude)
                 else:
                     current = (self._position.latitude, self._position.longitude)
-                ordered = []
-                while candidates:
-                    best = min(candidates, key=lambda c: math.dist(self._map_point(*current),
-                                                                   self._map_point(c.latitude, c.longitude)))
-                    ordered.append(best)
-                    candidates.remove(best)
-                    current = (best.latitude, best.longitude)
+                by_coordinates = {}
+                route_coords = []
+                for command in candidates:
+                    coord = (command.latitude, command.longitude, command.altitude_agl)
+                    route_coords.append(coord)
+                    by_coordinates.setdefault(coord, []).append(command)
+                home = (mission.plan.home.latitude, mission.plan.home.longitude)
+                ordered_coords = order_waypoints(
+                    route_coords,
+                    "unordered",
+                    current,
+                    return_home=home,
+                )
+                ordered = [by_coordinates[coord].pop(0) for coord in ordered_coords]
                 for i, cmd in zip(future_indices, ordered[:-1]):
                     commands[i] = cmd
                 insertion = next((i for i in range(mission.index + 1, len(commands))
@@ -652,12 +860,27 @@ class GroundMissionServer(Node):
             candidate = MissionPlan()
             candidate.id = mission.plan.id
             candidate.home = mission.plan.home
+            candidate.order_mode = getattr(mission.plan, "order_mode", "ordered")
             candidate.commands = commands
             rejection = self._leg_rejection(candidate)
             if rejection:
                 raise ValueError(rejection)
             mission.plan.commands = commands
+            mission.plan.order_mode = mode
+            new_order = [command.id for command in commands]
+            if new_order != previous_order:
+                mission.order_change_reason = (
+                    "Operator-added waypoint inserted; remaining destinations reordered "
+                    "using the nearest-distance heuristic."
+                    if mode == "unordered"
+                    else "Operator-added waypoint inserted into the ordered mission."
+                )
             mission.status = mission.status[:insertion] + [MissionState.COMMAND_WAITING] + mission.status[insertion:]
+            mission.command_failure_reasons = (
+                mission.command_failure_reasons[:insertion]
+                + [""]
+                + mission.command_failure_reasons[insertion:]
+            )
             positions, mission.points = self._plan_points(mission.plan)
             mission.yaws = goal_yaws(mission.points)
             mission.point_of = {index: point for point, index in enumerate(positions, start=1)}
@@ -745,6 +968,7 @@ class GroundMissionServer(Node):
             mission.abort_reason = ""
             self._last_failure_reason = ""
             self._recovered_failure_reason = ""
+            self._write_snapshot(mission, MissionState.MISSION_RUNNING)
             self._start_command(mission)
             return True, ""
         return False, f"unknown request {request}"
@@ -886,8 +1110,20 @@ class GroundMissionServer(Node):
         mission = self._mission
         if mission is None:
             return
+        self._process_keepout_update(mission)
         if mission.goal is not None and mission.goal.is_cancel_requested:
             self._abort(mission, CANCELLED_BY_MANAGER)
+        if mission.phase in (Phase.NAVIGATING, Phase.HOLDING):
+            localization_reason = self._localization_reason(check_tf=False)
+            if localization_reason:
+                reason = f"{LOCALIZATION_FAULT_PREFIX} {localization_reason}"
+                self.get_logger().warning(
+                    f"mission {mission.plan.id} suspending: {reason}"
+                )
+                mission.abort_reason = reason
+                mission.phase = Phase.SUSPENDING
+                mission.hold_until = None
+                self._set_deadline(mission, STOP_TIMEOUT_S, STOP_OVERDUE)
         try:
             self._advance(mission)
         except MissionError as error:
@@ -898,6 +1134,135 @@ class GroundMissionServer(Node):
                 str(error),
                 mission.goal.abort if mission.goal is not None else (lambda: None),
             )
+
+    def _keepout_mtime_ns(self) -> int | None:
+        if not hasattr(self, "_keepout_snapshot_path"):
+            return None
+        try:
+            return self._keepout_snapshot_path.stat().st_mtime_ns
+        except FileNotFoundError:
+            return None
+        except OSError as error:
+            self.get_logger().warning(f"could not inspect keepout snapshot: {error}")
+            return self._keepout_snapshot_mtime_ns
+
+    def _process_keepout_update(self, mission: _Mission) -> None:
+        """Observe atomically saved keepout updates and reorder only future waypoints.
+
+        The keepout server republishes changed obstacle data to Nav2, whose active
+        navigation behavior tree replans the current goal. Here we keep the mission's
+        future order and published state synchronized with that authoritative snapshot.
+        """
+        updated_mtime = self._keepout_mtime_ns()
+        if updated_mtime == self._keepout_snapshot_mtime_ns:
+            return
+        self._keepout_snapshot_mtime_ns = updated_mtime
+        try:
+            _, error = self._keepout_zones()
+        except Exception as error:  # Keep mission state unchanged on transient read errors.
+            self.get_logger().warning(f"keepout update ignored: {error}")
+            return
+        if error:
+            self.get_logger().warning(f"keepout update ignored: {error}")
+            return
+
+        commands = mission.plan.commands
+        end = next(
+            (i for i in range(mission.index + 1, len(commands))
+             if commands[i].kind == MissionCommand.HOME),
+            len(commands),
+        )
+        future_slots = [
+            i for i in range(mission.index + 1, end)
+            if commands[i].kind == MissionCommand.WAYPOINT
+            and mission.status[i] == MissionState.COMMAND_WAITING
+        ]
+        old_order = [command.id for command in commands]
+        zones, _ = self._keepout_zones()
+        # Destinations inside the updated zone are excluded before reordering.
+        for slot in future_slots:
+            command = commands[slot]
+            reason = self._destination_keepout_reason(
+                command.latitude,
+                command.longitude,
+                command.acceptance_radius_m,
+                zones,
+            )
+            if reason:
+                mission.status[slot] = MissionState.COMMAND_FAILED
+                mission.command_failure_reasons[slot] = (
+                    f"waypoint command {command.id} {reason} after keepout update"
+                )
+
+        active_command = commands[mission.index]
+        if active_command.kind == MissionCommand.WAYPOINT:
+            active_reason = self._destination_keepout_reason(
+                active_command.latitude,
+                active_command.longitude,
+                active_command.acceptance_radius_m,
+                zones,
+            )
+            if active_reason:
+                mission.keepout_blocked_reason = (
+                    f"waypoint command {active_command.id} {active_reason} after keepout update"
+                )
+
+        slots = [
+            i for i in future_slots
+            if mission.status[i] == MissionState.COMMAND_WAITING
+        ]
+        order_mode = getattr(mission.plan, "order_mode", "ordered") or "ordered"
+        if order_mode == "unordered" and len(slots) > 1:
+            candidates = [commands[i] for i in slots]
+            by_coordinates: dict[tuple[float, float, float], list[MissionCommand]] = {}
+            coordinates = []
+            for command in candidates:
+                coordinate = (command.latitude, command.longitude, command.altitude_agl)
+                coordinates.append(coordinate)
+                by_coordinates.setdefault(coordinate, []).append(command)
+            origin = (active_command.latitude, active_command.longitude) if (
+                active_command.kind == MissionCommand.WAYPOINT
+                and not getattr(mission, "keepout_blocked_reason", "")
+                ) else (self._position.latitude, self._position.longitude)
+            selected = order_waypoints(
+                coordinates,
+                "unordered",
+                origin,
+                return_home=(mission.plan.home.latitude, mission.plan.home.longitude),
+            )
+            reordered = [by_coordinates[coordinate].pop(0) for coordinate in selected]
+            for slot, command in zip(slots, reordered, strict=True):
+                commands[slot] = command
+
+        new_order = [command.id for command in commands]
+        mission.order_change_reason = ""
+        if new_order != old_order:
+            mission.order_change_reason = (
+                f"Keepout zones changed; remaining waiting destinations reordered by "
+                f"straight-line route distance ({order_mode} mode). Nav2 replans each active leg."
+            )
+        positions, mission.points = self._plan_points(mission.plan)
+        mission.yaws = goal_yaws(mission.points)
+        mission.point_of = {index: point for point, index in enumerate(positions, start=1)}
+        mission.waypoints = [
+            {"lat": command.latitude, "lon": command.longitude}
+            for command in commands if command.kind == MissionCommand.WAYPOINT
+        ]
+        if any(
+            mission.status[index] == MissionState.COMMAND_FAILED
+            and "after keepout update" in mission.command_failure_reasons[index]
+            for index in future_slots
+        ):
+            if not mission.order_change_reason:
+                mission.order_change_reason = (
+                    "Keepout update made one or more remaining destinations infeasible; "
+                    "those commands were marked failed."
+                )
+            else:
+                mission.order_change_reason += " Destinations inside the updated keepout were marked failed."
+        self._write_snapshot(mission)
+        self._publish_geojson(mission, self._waypoints_before(mission, mission.index))
+        self._publish_state(mission, MissionState.MISSION_RUNNING)
     def _advance(self, mission: _Mission) -> None:
         if mission.deadline is not None and self._now() > mission.deadline:
             raise MissionError(mission.overdue)
@@ -916,6 +1281,11 @@ class GroundMissionServer(Node):
             self._return_home(mission)
     def _start_command(self, mission: _Mission) -> None:
         commands = mission.plan.commands
+        while (
+            mission.index < len(commands)
+            and mission.status[mission.index] == MissionState.COMMAND_FAILED
+        ):
+            mission.index += 1
         while mission.index < len(commands) and commands[mission.index].kind in INSTANT_KINDS:
             command = commands[mission.index]
             self.get_logger().info(
@@ -934,6 +1304,14 @@ class GroundMissionServer(Node):
         self._set_status(mission, mission.index, MissionState.COMMAND_RUNNING)
         self._publish_state(mission, MissionState.MISSION_RUNNING)
     def _navigate(self, mission: _Mission) -> None:
+        if getattr(mission, "keepout_blocked_reason", ""):
+            if not self._navigation_stopped(mission):
+                return
+            reason = mission.keepout_blocked_reason
+            mission.keepout_blocked_reason = ""
+            if not self._fail_waypoint_and_continue(mission, reason):
+                raise MissionError(reason)
+            return
         if mission.navigation is None:
             if mission.backtrack_pending:
                 self.get_logger().warning(
@@ -952,9 +1330,23 @@ class GroundMissionServer(Node):
                     f"(attempt {mission.waypoint_retries + 1} of "
                     f"{self._waypoint_retry_limit + 1})"
                 )
-            mission.navigation = self._send_goal(mission, mission.point_of[mission.index])
+            try:
+                mission.navigation = self._send_goal(mission, mission.point_of[mission.index])
+            except MissionError as error:
+                if self._retry_waypoint(mission, str(error)):
+                    return
+                if not self._fail_waypoint_and_continue(mission, str(error)):
+                    raise
             return
-        status = self._navigation_status(mission.navigation)
+        try:
+            status = self._navigation_status(mission.navigation)
+        except MissionError as error:
+            mission.navigation = None
+            if self._retry_waypoint(mission, str(error)):
+                return
+            if not self._fail_waypoint_and_continue(mission, str(error)):
+                raise
+            return
         if status not in TERMINAL_GOAL_STATUSES:
             return
         staged = mission.navigation.staged
@@ -1006,24 +1398,12 @@ class GroundMissionServer(Node):
                     None,
                 )
                 if next_target is not None:
-                    self._set_status(mission, mission.index, MissionState.COMMAND_FAILED)
-                    for skipped in range(mission.index + 1, next_target):
-                        if mission.plan.commands[skipped].kind in INSTANT_KINDS:
-                            self._set_status(mission, skipped, MissionState.COMMAND_FINISHED)
-                    self.get_logger().error(
-                        f"waypoint command {command.id} failed after "
-                        f"{mission.waypoint_retries + 1} attempts; marking it failed, "
-                        f"backtracking to the last reached point, then continuing at "
-                        f"command {mission.plan.commands[next_target].id}"
-                    )
-                    mission.waypoint_retries = 0
-                    mission.retry_after = None
-                    mission.resume_command_index = next_target
-                    mission.backtrack_pending = True
-                    self._publish_geojson(
+                    self._fail_waypoint_and_continue(
                         mission,
-                        self._waypoints_before(mission, next_target),
-                        failed=True,
+                        f"Nav2 ended with status {status} after "
+                        f"{mission.waypoint_retries + 1} attempt(s)",
+                        next_target=next_target,
+                        backtrack=True,
                     )
                     return
             attempts = mission.waypoint_retries + 1
@@ -1042,6 +1422,72 @@ class GroundMissionServer(Node):
             mission.hold_until = self._now() + Duration(seconds=command.hold_s)
             return
         self._complete_command(mission)
+
+    def _fail_waypoint_and_continue(
+        self,
+        mission: _Mission,
+        reason: str,
+        *,
+        next_target: int | None = None,
+        backtrack: bool = False,
+    ) -> bool:
+        index = mission.index
+        command = mission.plan.commands[index]
+        if command.kind != MissionCommand.WAYPOINT or not self._continue_after_waypoint_failure:
+            return False
+        if next_target is None:
+            next_target = next(
+                (
+                    candidate
+                    for candidate in range(index + 1, len(mission.plan.commands))
+                    if mission.plan.commands[candidate].kind in POSITION_KINDS
+                    and mission.status[candidate] != MissionState.COMMAND_FAILED
+                ),
+                None,
+            )
+        if next_target is None:
+            return False
+        mission.command_failure_reasons[index] = reason
+        self._set_status(mission, index, MissionState.COMMAND_FAILED)
+        self._write_snapshot(mission)
+        self.get_logger().warning(
+            f"waypoint command {command.id} failed: {reason}; "
+            f"continuing at command {mission.plan.commands[next_target].id}"
+        )
+        mission.waypoint_retries = 0
+        mission.retry_after = None
+        if backtrack:
+            for skipped in range(index + 1, next_target):
+                if mission.plan.commands[skipped].kind in INSTANT_KINDS:
+                    self._set_status(mission, skipped, MissionState.COMMAND_FINISHED)
+            mission.resume_command_index = next_target
+            mission.backtrack_pending = True
+            self._publish_geojson(
+                mission, self._waypoints_before(mission, next_target), failed=True
+            )
+        else:
+            mission.index = next_target
+            self._publish_geojson(
+                mission, self._waypoints_before(mission, next_target), failed=True
+            )
+            self._start_command(mission)
+        return True
+
+    def _retry_waypoint(self, mission: _Mission, reason: str) -> bool:
+        """Retry a planner-level waypoint failure using configured retry policy."""
+        if (
+            mission.plan.commands[mission.index].kind != MissionCommand.WAYPOINT
+            or mission.waypoint_retries >= self._waypoint_retry_limit
+        ):
+            return False
+        mission.waypoint_retries += 1
+        mission.retry_after = self._now() + Duration(seconds=self._waypoint_retry_delay_s)
+        self.get_logger().warning(
+            f"planning waypoint command {mission.plan.commands[mission.index].id} failed: "
+            f"{reason}; retrying after {self._waypoint_retry_delay_s:.1f} s "
+            f"({mission.waypoint_retries}/{self._waypoint_retry_limit})"
+        )
+        return True
     def _complete_command(self, mission: _Mission) -> None:
         if mission.index in mission.point_of:
             mission.last_reached_point = mission.point_of[mission.index]
@@ -1058,6 +1504,9 @@ class GroundMissionServer(Node):
         self._publish_state(mission, MissionState.MISSION_PAUSED)
         self._write_snapshot(mission)
     def _end_abort(self, mission: _Mission) -> None:
+        if mission.abort_reason.startswith(LOCALIZATION_FAULT_PREFIX):
+            self._finish_aborted(mission)
+            return
         if mission.abort_reason in (OPERATOR_TOOK_OVER, "mission cleared by operator"):
             self._finish_aborted(mission)
             return
@@ -1101,6 +1550,9 @@ class GroundMissionServer(Node):
         index = self._current(mission)
         if command_status is not None:
             self._set_status(mission, index, command_status)
+            if command_status in (MissionState.COMMAND_FAILED, MissionState.COMMAND_ABORTED):
+                mission.command_failure_reasons[index] = reason
+                self._write_snapshot(mission, mission_status)
             current = self._waypoints_before(mission, index)
             self._publish_geojson(
                 mission,
@@ -1341,6 +1793,8 @@ class GroundMissionServer(Node):
         msg.current_command_id = mission.plan.commands[self._current(mission)].id
         msg.command_ids = [command.id for command in mission.plan.commands]
         msg.command_status = list(mission.status)
+        msg.command_failure_reasons = list(mission.command_failure_reasons)
+        msg.order_change_reason = mission.order_change_reason
         msg.mission_status = mission_status
         msg.failure_reason = self._last_failure_reason or mission.abort_reason
         self._publish(msg)
@@ -1365,10 +1819,12 @@ class GroundMissionServer(Node):
             )
         msg = GeoJSON()
         waypoint_statuses = []
+        waypoint_command_ids = []
         for command_index, command in enumerate(mission.plan.commands):
             if command.kind != MissionCommand.WAYPOINT:
                 continue
             status = mission.status[command_index]
+            waypoint_command_ids.append(command.id)
             waypoint_statuses.append({
                 MissionState.COMMAND_FINISHED: "completed",
                 MissionState.COMMAND_FAILED: "failed",
@@ -1381,6 +1837,7 @@ class GroundMissionServer(Node):
             return_position={"lat": mission.plan.home.latitude, "lon": mission.plan.home.longitude},
             active=not failed, return_active=return_active, mission_complete=mission_complete,
             waypoint_statuses=waypoint_statuses,
+            waypoint_command_ids=waypoint_command_ids,
         )
         self._geojson_pub.publish(msg)
 def main() -> None:

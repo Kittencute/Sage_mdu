@@ -3,6 +3,7 @@
 #!/usr/bin/env python3
 """TerraScout interactive ROS 2 mission tester; no external Python packages."""
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -188,11 +189,99 @@ def set_home(waypoints):
         print('Saved Home may reset when the mission server restarts.')
 
 
+def manage_keepout(waypoints):
+    print('\nKeepout zone: 1. Create/update  2. List all  3. Delete  0. Cancel')
+    action = input('Action: ').strip()
+    if action == '0' or not action:
+        return
+    if action not in ('1', '2', '3'):
+        print('Choose 1, 2, 3, or 0.')
+        return
+    if action == '2':
+        run_command([
+            'ros2', 'run', 'fleet_common', 'keepout_zone.py',
+            '--namespace', NAMESPACE, '--list',
+        ])
+        return
+    label = input('Zone label (any name, e.g. tree_line or test_zone): ').strip()
+    if not label:
+        print('Cancelled: label is required.')
+        return
+    args = ['ros2', 'run', 'fleet_common', 'keepout_zone.py', '--namespace', NAMESPACE,
+            '--label', label]
+    if action == '3':
+        run_command(args + ['--clear'])
+        return
+
+    print('\nZone center: 1. Use a test waypoint  2. Enter latitude/longitude')
+    location_choice = input('Location [1]: ').strip() or '1'
+    if location_choice == '1':
+        selected = choose_waypoints(waypoints, multiple=False)
+        if not selected:
+            return
+        name, coord = selected[0]
+        latitude, longitude = coord.split(',')
+        center_description = f'{name} ({latitude}, {longitude})'
+    elif location_choice == '2':
+        name = None
+        try:
+            latitude = input('Latitude (WGS84 degrees): ').strip()
+            longitude = input('Longitude (WGS84 degrees): ').strip()
+            latitude_value, longitude_value = float(latitude), float(longitude)
+            if not math.isfinite(latitude_value) or not -90 <= latitude_value <= 90:
+                raise ValueError('latitude must be finite and between -90 and 90')
+            if not math.isfinite(longitude_value) or not -180 <= longitude_value <= 180:
+                raise ValueError('longitude must be finite and between -180 and 180')
+            latitude, longitude = str(latitude_value), str(longitude_value)
+            center_description = f'({latitude}, {longitude})'
+        except ValueError as exc:
+            print(f'Cancelled: invalid coordinates ({exc}).')
+            return
+    else:
+        print('Cancelled: choose 1 or 2.')
+        return
+    try:
+        x_length = float(input('X length in metres: ').strip())
+        y_length = float(input('Y length in metres: ').strip())
+        yaw = float(input('Yaw in degrees [0]: ').strip() or '0')
+        if not all(map(math.isfinite, (x_length, y_length, yaw))):
+            raise ValueError('dimensions and yaw must be finite numbers')
+        if x_length <= 0 or y_length <= 0:
+            raise ValueError('zone lengths must be greater than zero')
+    except ValueError as exc:
+        print(f'Cancelled: invalid zone geometry ({exc}).')
+        return
+    print(f'Upserting {label!r} centered on {center_description}.')
+    run_command(args + [
+        '--latitude', latitude, '--longitude', longitude,
+        '--x-length', str(x_length), '--y-length', str(y_length), '--yaw-deg', str(yaw),
+    ])
+
+
 def control_mission(request):
     return run_command([
         'ros2', 'service', 'call', f'/{NAMESPACE}/control_mission',
         'fleet_interfaces/srv/ControlMission', f'{{request: {request}}}',
     ])
+
+
+def set_localization_fault(inject):
+    """Control the simulation-only GNSS shim fault gate."""
+    action = "INJECT" if inject else "CLEAR"
+    if inject:
+        print("WARNING: this intentionally makes simulated localization invalid.")
+        print("An active autonomous mission should stop/abort; use only in simulation.")
+        if input("Type INJECT to continue: ").strip() != "INJECT":
+            print("Cancelled.")
+            return 1
+    result = run_command([
+        'ros2', 'service', 'call',
+        f'/{NAMESPACE}/gnss_shim/set_localization_fault',
+        'std_srvs/srv/SetBool', f'{{data: {str(bool(inject)).lower()}}}',
+    ])
+    if result != 0:
+        print(f'{action} failed. This service is available only when the simulation GNSS shim is running.')
+    return result
 
 
 def resume_autonomy():
@@ -201,8 +290,10 @@ def resume_autonomy():
         f'/{NAMESPACE}/resume_autonomy', 'std_srvs/srv/Trigger', '{}',
     ])
     if result != 0:
-        print('Resume request failed or timed out. Keep autonomy locked and inspect service logs.')
-    return result
+        print('Autonomy unlock failed. Keep stopped and inspect service logs.')
+        return result
+    print('Requesting mission resume (requires cleared localization fault and a fresh valid path).')
+    return control_mission(2)
 
 
 def inspect_mission_state():
@@ -276,17 +367,13 @@ def main():
         return 1
     while True:
         print(f'''\n========== TERRASCOUT MISSION TESTER ({NAMESPACE}) ==========
-1. Send ORDERED mission
-2. Send UNORDERED mission
-3. Add waypoint to active mission
-4. Clear / cancel mission
-5. Go to saved Home
-6. Set saved Home from a test waypoint
-7. Resume autonomy (validates and resumes suspended mission)
-8. Show test waypoints
-9. Suspend mission
-10. Show mission state
-0. Exit''')
+     1. Send ORDERED mission       2. Send UNORDERED mission
+     3. Add waypoint               4. Clear / cancel mission
+     5. Go to saved Home           6. Set saved Home
+     7. Resume autonomy            8. Show test waypoints
+     9. Suspend mission           10. Show mission state
+    11. Keepout zone CRUD          12. Inject localization fault
+    13. Clear localization fault   0. Exit''')
         try:
             choice = input('Select: ').strip()
             if choice == '1':
@@ -312,10 +399,16 @@ def main():
                 inspect_mission_state()
                 print(f'Persistent snapshots are in /run/sage/{NAMESPACE}/ inside the robot container.')
                 print('Files: mission_state.json and keepout_zones.json')
+            elif choice == '11':
+                manage_keepout(waypoints)
+            elif choice == '12':
+                set_localization_fault(True)
+            elif choice == '13':
+                set_localization_fault(False)
             elif choice == '0':
                 return 0
             else:
-                print('Choose an option from 0 to 10.')
+                print('Choose an option from 0 to 13.')
         except (KeyboardInterrupt, EOFError):
             print('\nExiting menu (any started mission client may continue).')
             return 0

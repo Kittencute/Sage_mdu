@@ -61,7 +61,7 @@
         # Match the segmentation obstacle band relative to base_footprint.
         max_height: 1.05
         min_height: 0.1
-        source_timeout: 0.8
+        source_timeout: 0.3
         topic: obstacle_points
         type: pointcloud
       polygons:
@@ -81,7 +81,7 @@
           consider_footprint: true
         PathAlignCritic:
           max_path_occupancy_ratio: 0.05
-          use_path_orientations: false
+          use_path_orientations: true
         PathAngleCritic:
           cost_weight: 2.0
           max_angle_to_furthest: 1.0
@@ -95,7 +95,7 @@
         ax_min: -2.5
         az_max: 3.2
         # Reduce per-cycle optimization work after observed 4.8 Hz controller drops.
-        batch_size: 200
+        batch_size: 500
         critics:
         - ConstraintCritic
         - CostCritic
@@ -106,14 +106,14 @@
         - PathFollowCritic
         - PathAngleCritic
         - PreferForwardCritic
-        enforce_path_inversion: false
+        enforce_path_inversion: true
         inversion_xy_tolerance: 0.3
         inversion_yaw_tolerance: 0.5
         iteration_count: 1
         max_angular_accel: 2.5
         model_dt: 0.05
         plugin: nav2_rotation_shim_controller::RotationShimController
-        primary_controller: nav2_mppi_controller::MPPIController
+        primary_controller: nav2_mppi_controller::MPPIController       
         prune_distance: 10.0
         rotate_to_heading_angular_vel: 0.7
         # Preserve the 1 m/s autonomous forward-speed cap.
@@ -121,7 +121,12 @@
         # Permit slow reverse maneuvers when forward-only tracking is blocked.
         vx_min: -0.25
         vy_std: 0.0
+        vx_std: 0.3
         wz_max: 1.0
+
+      angular_dist_threshold: 1.0
+      forward_sampling_distance: 0.8
+      rotate_to_heading_angular_vel: 0.7
       controller_frequency: 20.0
       enable_stamped_cmd_vel: true
       failure_tolerance: 0.3
@@ -275,7 +280,7 @@
             topic: /<robot_namespace>/obstacle_points
             marking: true
             clearing: false
-            obstacle_range: 10.0
+            obstacle_range: 20.0
             # Segmentation already filters obstacle height in the robot frame;
             # keep this broad because the cloud is transformed into odom here.
             min_obstacle_height: -1000.0
@@ -317,9 +322,9 @@
         - stvl_layer
         - inflation_layer
         # Refresh the rolling obstacle map near the 10 Hz simulated LiDAR rate.
-        update_frequency: 8.0
-        publish_frequency: 5.0
-        resolution: 0.1
+        update_frequency: 10.0
+        publish_frequency: 2.0
+        resolution: 0.05
         rolling_window: true
         width: 15
   planner_server:

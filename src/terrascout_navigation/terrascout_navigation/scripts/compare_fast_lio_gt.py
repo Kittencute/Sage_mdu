@@ -7,6 +7,7 @@ The reported errors measure relative trajectory drift, not absolute localization
 
 import argparse
 import csv
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import re
@@ -25,6 +26,7 @@ import rosbag2_py
 from rclpy.serialization import deserialize_message
 from rosidl_runtime_py.utilities import get_message
 from scipy.spatial.transform import Rotation, Slerp
+from std_msgs.msg import String
 
 SWEDISH_TIMEZONE = ZoneInfo("Europe/Stockholm")
 
@@ -82,6 +84,206 @@ def read_odometry_bag(bag_path: Path, topics: list[str]):
         if not rows[topic]:
             raise RuntimeError(f"No usable odometry samples for {topic}")
     return rows, frames
+
+
+def read_plan_bag(bag_path: Path, topic: str, start_time: float, end_time: float):
+    """Read paths and their frame IDs in the selected odometry time interval."""
+    reader = rosbag2_py.SequentialReader()
+    reader.open(
+        rosbag2_py.StorageOptions(uri=str(bag_path), storage_id="mcap"),
+        rosbag2_py.ConverterOptions("", ""),
+    )
+    type_map = {entry.name: entry.type for entry in reader.get_all_topics_and_types()}
+    if topic not in type_map:
+        print(f"WARNING: planned path topic {topic} is not in the bag")
+        return []
+    if type_map[topic] != "nav_msgs/msg/Path":
+        print(f"WARNING: {topic} has type {type_map[topic]}, expected nav_msgs/msg/Path")
+        return []
+
+    try:
+        message_type = get_message(type_map[topic])
+    except (ImportError, AttributeError, ModuleNotFoundError):
+        # foxglove_msgs/GeoJSON has the same single-string CDR layout as String.
+        if type_map[topic] != "foxglove_msgs/msg/GeoJSON":
+            raise
+        message_type = String
+    paths = []
+    while reader.has_next():
+        current_topic, serialized, received_ns = reader.read_next()
+        if current_topic != topic:
+            continue
+        message = deserialize_message(serialized, message_type)
+        stamp = message.header.stamp
+        stamp_ns = int(stamp.sec) * 1_000_000_000 + int(stamp.nanosec)
+        path_time = stamp_ns * 1e-9 if stamp_ns else received_ns * 1e-9
+        if not start_time <= path_time <= end_time:
+            continue
+        points = [
+            (pose.pose.position.x, pose.pose.position.y)
+            for pose in message.poses
+            if np.isfinite(pose.pose.position.x) and np.isfinite(pose.pose.position.y)
+        ]
+        if points:
+            paths.append((path_time, message.header.frame_id, np.asarray(points, dtype=float)))
+    paths.sort(key=lambda item: item[0])
+    # Keep one representative/latest plan per destination leg, avoiding a stack
+    # of near-identical replans for that waypoint.
+    latest_by_leg = {}
+    for item in paths:
+        endpoint = item[2][-1]
+        leg_key = tuple(np.round(endpoint, decimals=1))
+        latest_by_leg[leg_key] = item
+    selected = sorted(latest_by_leg.values(), key=lambda item: item[0])
+    print(
+        f"{topic}: {len(paths)} path messages in the plotted interval; "
+        f"showing {len(selected)} latest plan(s), one per destination endpoint"
+    )
+    return selected
+
+
+def read_waypoint_snapshot(bag_path: Path, topic: str, end_time: float):
+    """Read the last GeoJSON waypoint snapshot up to the plotted mission end."""
+    reader = rosbag2_py.SequentialReader()
+    reader.open(
+        rosbag2_py.StorageOptions(uri=str(bag_path), storage_id="mcap"),
+        rosbag2_py.ConverterOptions("", ""),
+    )
+    type_map = {entry.name: entry.type for entry in reader.get_all_topics_and_types()}
+    if topic not in type_map:
+        print(f"WARNING: waypoint topic {topic} is not in the bag")
+        return []
+    try:
+        message_type = get_message(type_map[topic])
+    except (ImportError, AttributeError, ModuleNotFoundError):
+        # foxglove_msgs/GeoJSON has the same single-string CDR layout as String.
+        if type_map[topic] != "foxglove_msgs/msg/GeoJSON":
+            raise
+        message_type = String
+    snapshots = []
+    while reader.has_next():
+        current_topic, serialized, received_ns = reader.read_next()
+        if current_topic != topic:
+            continue
+        message = deserialize_message(serialized, message_type)
+        # GeoJSON is a single-string message without a header; consistently use
+        # rosbag receive time for selecting its snapshot against bag timestamps.
+        message_time = received_ns * 1e-9
+        if message_time > end_time:
+            continue
+        raw = message.data if hasattr(message, "data") else message.geojson
+        try:
+            collection = json.loads(raw)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        points = []
+        for feature in collection.get("features", []):
+            geometry = feature.get("geometry", {})
+            coords = geometry.get("coordinates", [])
+            if geometry.get("type") != "Point" or len(coords) < 2:
+                continue
+            properties = feature.get("properties", {})
+            metadata = properties.get("metadata", {})
+            # This topic's GeoJSON coordinates are longitude/latitude, converted
+            # to the same local ENU basis used by the ground-truth odometry.
+            status = str(metadata.get("status", "pending")).lower()
+            style = properties.get("style", {})
+            color = str(style.get("color", ""))
+            points.append((
+                float(metadata.get("lon", coords[0])),
+                float(metadata.get("lat", coords[1])),
+                str(properties.get("name", f"WP{len(points) + 1}")),
+                status,
+                color,
+            ))
+        if points:
+            snapshots.append((message_time, points))
+    if not snapshots:
+        print(f"WARNING: no waypoint snapshot found on {topic}")
+        return []
+    print(f"{topic}: using waypoint snapshot at bag time {max(snapshots, key=lambda x: x[0])[0]:.3f}s")
+    return max(snapshots, key=lambda item: item[0])[1]
+
+
+def local_enu_xy(longitude, latitude, origin_longitude, origin_latitude):
+    """Convert nearby WGS84 coordinates to local east/north metres."""
+    earth_radius_m = 6_378_137.0
+    lat0 = np.deg2rad(origin_latitude)
+    east = earth_radius_m * np.deg2rad(longitude - origin_longitude) * np.cos(lat0)
+    north = earth_radius_m * np.deg2rad(latitude - origin_latitude)
+    return np.array([east, north], dtype=float)
+
+
+def read_datum(bag_path: Path, topic: str):
+    """Return the latest recorded NavSatFix datum (latitude, longitude)."""
+    reader = rosbag2_py.SequentialReader()
+    reader.open(
+        rosbag2_py.StorageOptions(uri=str(bag_path), storage_id="mcap"),
+        rosbag2_py.ConverterOptions("", ""),
+    )
+    type_map = {entry.name: entry.type for entry in reader.get_all_topics_and_types()}
+    if topic not in type_map:
+        print(f"WARNING: datum topic {topic} is not in the bag; waypoint markers omitted")
+        return None
+    message_type = get_message(type_map[topic])
+    datum = None
+    while reader.has_next():
+        current_topic, serialized, _ = reader.read_next()
+        if current_topic == topic:
+            message = deserialize_message(serialized, message_type)
+            datum = (float(message.latitude), float(message.longitude))
+    return datum
+
+
+def read_map_odom_transform(bag_path: Path, namespace: str):
+    """Read recorded map/odom TF and return a transform function map XY -> odom XY."""
+    tf_topics = (f"/{namespace}/tf", f"/{namespace}/tf_static", "/tf", "/tf_static")
+    reader = rosbag2_py.SequentialReader()
+    reader.open(
+        rosbag2_py.StorageOptions(uri=str(bag_path), storage_id="mcap"),
+        rosbag2_py.ConverterOptions("", ""),
+    )
+    type_map = {entry.name: entry.type for entry in reader.get_all_topics_and_types()}
+    available = [topic for topic in tf_topics if topic in type_map]
+    if not available:
+        print("WARNING: no TF topics recorded; cannot transform map-frame plan")
+        return None
+    tf_type = get_message("tf2_msgs/msg/TFMessage")
+    candidates = []
+    while reader.has_next():
+        topic, serialized, received_ns = reader.read_next()
+        if topic not in available:
+            continue
+        is_static = topic.endswith("tf_static")
+        message = deserialize_message(serialized, tf_type)
+        for stamped in message.transforms:
+            parent = stamped.header.frame_id.lstrip("/")
+            child = stamped.child_frame_id.lstrip("/")
+            if (parent, child) not in (("map", "odom"), (f"{namespace}/map", f"{namespace}/odom")):
+                continue
+            stamp = stamped.header.stamp
+            stamp_ns = int(stamp.sec) * 1_000_000_000 + int(stamp.nanosec)
+            candidates.append((is_static, stamp_ns or received_ns, parent, child, stamped.transform))
+    if not candidates:
+        print("WARNING: recorded TF contains no direct map/odom transform")
+        return None
+    # Static TF is invariant; otherwise use the latest recorded transform.
+    static_candidates = [candidate for candidate in candidates if candidate[0]]
+    chosen = max(static_candidates or candidates, key=lambda candidate: candidate[1])
+    _, _, parent, child, transform = chosen
+    q = transform.rotation
+    yaw = 2.0 * np.arctan2(q.z, q.w)
+    rotation = np.array([[np.cos(yaw), -np.sin(yaw)], [np.sin(yaw), np.cos(yaw)]])
+    translation = np.array([transform.translation.x, transform.translation.y])
+    print(
+        f"Using recorded {'static' if chosen[0] else 'dynamic'} TF "
+        f"{parent} -> {child}: x={translation[0]:.3f}, y={translation[1]:.3f}, yaw={np.rad2deg(yaw):.3f} deg"
+    )
+    if child.endswith("odom"):
+        # parent=map, child=odom: invert map<-odom to obtain odom<-map.
+        return lambda points: (points - translation) @ rotation
+    # parent=odom, child=map already maps map coordinates into odom.
+    return lambda points: points @ rotation.T + translation
 
 
 def arrays(rows):
@@ -151,13 +353,51 @@ def save_plot(path: Path, seconds, series, ylabel: str, title: str):
     plt.close()
 
 
-def save_trajectory_plot(path: Path, gt_position, lio_position, show=False):
+def save_trajectory_plot(
+    path: Path, gt_position, lio_position, planned_paths=(), waypoints=(), show=False
+):
     """Save an XY overlay and optionally display it interactively."""
     if plt is None:
         return
     plt.figure(figsize=(8, 8))
     plt.plot(gt_position[:, 0], gt_position[:, 1], label="Ground truth", linewidth=2)
-    plt.plot(lio_position[:, 0], lio_position[:, 1], label="FAST-LIO2 (aligned)", linewidth=1.5)
+    plt.plot(
+        lio_position[:, 0], lio_position[:, 1],
+        label="FAST-LIO2", linewidth=1.5,
+    )
+    status_colors = {
+        "pending": "#3b82f6", "completed": "#22c55e", "failed": "#ef4444",
+        "active": "#f97316", "skipped": "#9ca3af",
+    }
+    # Color each path by the waypoint leg it approaches. Repeated replans for
+    # that same leg share its status color; only one legend entry per status.
+    destination_status = {name: status for _, _, name, status, _ in waypoints}
+    labelled_statuses = set()
+    for _, _, plan in planned_paths:
+        if len(plan) == 0:
+            continue
+        endpoint = plan[-1]
+        if waypoints:
+            closest = min(waypoints, key=lambda wp: np.hypot(wp[0] - endpoint[0], wp[1] - endpoint[1]))
+            status = closest[3]
+        else:
+            status = "pending"
+        color = status_colors.get(status, "#3b82f6")
+        plt.plot(
+            plan[:, 0], plan[:, 1], "--", linewidth=1.3, color=color, alpha=0.65,
+            label=f"Nav2 path: {status}" if status not in labelled_statuses else None,
+        )
+        labelled_statuses.add(status)
+    labelled_statuses = set()
+    for x, y, name, status, feature_color in waypoints:
+        color = feature_color if feature_color.startswith("#") else status_colors.get(status, "#3b82f6")
+        status_label = f"Waypoint: {status}"
+        plt.scatter(
+            x, y, color=color, marker="o", s=55, edgecolors="white", linewidths=0.8,
+            zorder=5, label=status_label if status not in labelled_statuses else None,
+        )
+        labelled_statuses.add(status)
+        plt.annotate(name, (x, y), xytext=(5, 5), textcoords="offset points", color=color)
     plt.scatter(*gt_position[0, :2], marker="o", label="Start")
     plt.scatter(*gt_position[-1, :2], marker="x", label="Ground-truth end")
     plt.xlabel("East / X [m]")
@@ -165,7 +405,7 @@ def save_trajectory_plot(path: Path, gt_position, lio_position, show=False):
     plt.title("FAST-LIO2 trajectory vs ground truth")
     plt.axis("equal")
     plt.grid(True)
-    plt.legend()
+    # plt.legend()  # Temporarily hide labels on the trajectory comparison only.
     plt.tight_layout()
     plt.savefig(path, dpi=160)
     if show:
@@ -197,6 +437,21 @@ def main():
     parser.add_argument("bag", type=Path, help="ROS 2 MCAP bag directory")
     parser.add_argument("--lio-topic", default="/terrascout1/fast_lio/odometry")
     parser.add_argument("--ground-truth-topic", default="/terrascout1/odom_gt")
+    parser.add_argument("--plan-topic", default="/terrascout1/plan")
+    parser.add_argument("--waypoints-topic", default="/terrascout1/waypoints_geo")
+    parser.add_argument("--datum-topic", default="/terrascout1/fixposition/datum")
+    parser.add_argument(
+        "--plan-to-odom-x", type=float,
+        help="known map-to-odom translation X [m]; omit unless calibrated",
+    )
+    parser.add_argument(
+        "--plan-to-odom-y", type=float,
+        help="known map-to-odom translation Y [m]; omit unless calibrated",
+    )
+    parser.add_argument(
+        "--plan-to-odom-yaw-deg", type=float, default=0.0,
+        help="known map-to-odom yaw [deg] for transforming map-frame paths into odom",
+    )
     parser.add_argument("--max-dt", type=float, default=0.03)
     parser.add_argument("--imu-height", type=float, default=0.48)
     parser.add_argument(
@@ -248,6 +503,54 @@ def main():
     horizontal_error = np.linalg.norm(position_error[:, :2], axis=1)
     spatial_error = np.linalg.norm(position_error, axis=1)
     seconds = t - t[0]
+    planned_paths = read_plan_bag(args.bag, args.plan_topic, float(t[0]), float(t[-1]))
+    plan_frames = {frame_id for _, frame_id, _ in planned_paths}
+    if len(plan_frames) > 1:
+        raise RuntimeError(f"Planned path changes frame in the plot interval: {sorted(plan_frames)}")
+    plan_frame = next(iter(plan_frames), None)
+    ground_truth_frame = next(iter(frames[args.ground_truth_topic]))[0]
+    if plan_frame and plan_frame != ground_truth_frame:
+        if plan_frame == "map":
+            map_to_odom = read_map_odom_transform(args.bag, args.plan_topic.strip("/").split("/")[0])
+            if map_to_odom is not None:
+                planned_paths = [
+                    (stamp, frame_id, map_to_odom(points))
+                    for stamp, frame_id, points in planned_paths
+                ]
+                print("Transformed recorded map-frame Nav2 plan into odom for plotting")
+            elif args.plan_to_odom_x is not None and args.plan_to_odom_y is not None:
+                yaw = np.deg2rad(args.plan_to_odom_yaw_deg)
+                rotation = np.array([[np.cos(yaw), -np.sin(yaw)], [np.sin(yaw), np.cos(yaw)]])
+                translation = np.array([args.plan_to_odom_x, args.plan_to_odom_y])
+                planned_paths = [
+                    (stamp, frame_id, (points - translation) @ rotation)
+                    for stamp, frame_id, points in planned_paths
+                ]
+                print("Transformed map-frame Nav2 paths to odom using the supplied calibration")
+            else:
+                print(
+                    f"WARNING: path frame {plan_frame!r} differs from plotted ground-truth frame; "
+                    "overlay hidden because no recorded or supplied map-to-odom transform was found."
+                )
+                planned_paths = []
+        else:
+            print(
+                f"WARNING: path frame {plan_frame!r} differs from plotted ground-truth frame "
+                f"{ground_truth_frame!r}; overlay hidden."
+            )
+            planned_paths = []
+    waypoint_geo = read_waypoint_snapshot(args.bag, args.waypoints_topic, float(t[-1]))
+    waypoint_points = []
+    if waypoint_geo:
+        datum = read_datum(args.bag, args.datum_topic)
+        if datum is not None:
+            origin_lat, origin_lon = datum
+            for lon, lat, name, status, color in waypoint_geo:
+                waypoint_points.append(
+                    (*local_enu_xy(lon, lat, origin_lon, origin_lat), name, status, color)
+                )
+        else:
+            print("Waypoint markers omitted because they cannot be placed in the odometry frame safely")
     recording_start = recording_start_datetime(args.bag, args.recording_start)
     if recording_start is None:
         file_datetime = datetime.now(SWEDISH_TIMEZONE)
@@ -320,6 +623,7 @@ def main():
     )
     save_trajectory_plot(
         args.out_dir / f"{output_prefix}trajectory_comparison.png", gt_imu_p, lio_p_aligned,
+        planned_paths=planned_paths, waypoints=waypoint_points,
         show=args.show_trajectory,
     )
     if recording_start is None:

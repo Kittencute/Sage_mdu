@@ -18,53 +18,56 @@ def build_waypoints_geojson(
     return_active=False,
     mission_complete=False,
     waypoint_statuses=None,
+    waypoint_command_ids=None,
 ):
     features = []
     coords = [[wp["lon"], wp["lat"]] for wp in waypoints]
 
-    # Draw the initial leg independently so waypoint indices remain unchanged.
-    if start_position is not None and coords:
-        start = [start_position["lon"], start_position["lat"]]
-        if start != coords[0]:
-            color = GREEN if current_index > 0 else RED if failed else ORANGE if active else BLUE
-            features.append(_line([start, coords[0]], color))
-
-    if len(coords) >= 2:
-        if failed:
-            if current_index > 1:
-                features.append(_line(coords[:current_index], GREEN))
-            if current_index > 0:
-                features.append(_line(coords[current_index - 1:current_index + 1], RED))
-            if current_index + 1 < len(coords) - 1:
-                features.append(_line(coords[current_index + 1:], GRAY))
-        elif current_index == 0:
-            features.append(_line(coords, BLUE))
-        elif current_index >= len(coords):
-            features.append(_line(coords, GREEN))
-        else:
-            if current_index > 1:
-                features.append(_line(coords[:current_index], GREEN))
-            features.append(_line(coords[current_index - 1:current_index + 1], ORANGE))
-            if current_index < len(coords) - 1:
-                features.append(_line(coords[current_index:], BLUE))
-
-    if return_position is not None and coords:
-        finish = [return_position["lon"], return_position["lat"]]
-        if coords[-1] != finish:
-            color = (
-                GREEN if mission_complete
-                else ORANGE if return_active
-                else GRAY if failed
-                else BLUE
-            )
-            features.append(_line([coords[-1], finish], color))
-
-    for i, wp in enumerate(waypoints):
-        status = (
+    statuses = [
+        (
             waypoint_statuses[i]
             if waypoint_statuses is not None and i < len(waypoint_statuses)
             else _point_status(i, current_index, failed, active)
         )
+        for i in range(len(waypoints))
+    ]
+
+    # Failed destinations remain visible as red points but are removed from the
+    # route geometry. Connect the surrounding reachable destinations directly.
+    route_points = []
+    if start_position is not None:
+        route_points.append(("start", [start_position["lon"], start_position["lat"]]))
+    route_points.extend(
+        (statuses[index], coords[index])
+        for index in range(len(coords))
+        if statuses[index] != "failed"
+    )
+    if return_position is not None:
+        route_points.append(("home", [return_position["lon"], return_position["lat"]]))
+
+    for route_index, ((start_status, start), (end_status, end)) in enumerate(
+        zip(route_points, route_points[1:])
+    ):
+        if start == end:
+            continue
+        if mission_complete:
+            color = GREEN
+        elif return_active and end_status == "home":
+            color = ORANGE
+        elif end_status == "completed":
+            color = GREEN
+        elif end_status == "active":
+            color = ORANGE
+        elif end_status == "pending":
+            color = BLUE
+        elif start_status == "active":
+            color = ORANGE
+        else:
+            color = BLUE
+        features.append(_line([start, end], color))
+
+    for i, wp in enumerate(waypoints):
+        status = statuses[i]
         color = {
             "completed": GREEN,
             "failed": RED,
@@ -81,24 +84,26 @@ def build_waypoints_geojson(
                     "status": status,
                     "lat": str(wp["lat"]),
                     "lon": str(wp["lon"]),
+                    **({"command_id": str(waypoint_command_ids[i])}
+                       if waypoint_command_ids is not None and i < len(waypoint_command_ids) else {}),
                 },
                 "style": {"color": color},
             },
         })
     if return_position is not None:
-        home_color = (
-            GREEN if mission_complete
-            else ORANGE if return_active
-            else RED if failed
-            else BLUE
+        home_status = (
+            "completed" if mission_complete
+            else "active" if return_active
+            else "pending"
         )
+        home_color = {"completed": GREEN, "active": ORANGE, "pending": BLUE}[home_status]
         features.append({
             "type": "Feature",
             "geometry": {"type": "Point", "coordinates": [return_position["lon"], return_position["lat"]]},
             "properties": {
                 "name": "Home",
                 "metadata": {
-                    "status": "completed" if mission_complete else "active" if return_active else "failed" if failed else "pending",
+                    "status": home_status,
                     "lat": str(return_position["lat"]),
                     "lon": str(return_position["lon"]),
                 },

@@ -56,7 +56,7 @@ def test_parse_coords_fills_missing_altitude():
     ]
 
 
-def test_unordered_reorders_from_home_by_nearest_next():
+def test_unordered_minimizes_complete_route_including_return_home():
     coords = [
         (59.0, 18.0, 10.0),
         (59.0, 16.0, 10.0),
@@ -65,11 +65,29 @@ def test_unordered_reorders_from_home_by_nearest_next():
 
     ordered = order_waypoints(coords, mode="unordered", home=(59.0, 16.1))
 
-    assert ordered == [
-        (59.0, 16.0, 10.0),
-        (59.0, 17.0, 10.0),
-        (59.0, 18.0, 10.0),
+    assert ordered in (
+        [(59.0, 16.0, 10.0), (59.0, 17.0, 10.0), (59.0, 18.0, 10.0)],
+        [(59.0, 18.0, 10.0), (59.0, 17.0, 10.0), (59.0, 16.0, 10.0)],
+    )
+
+
+def test_unordered_can_reject_nearest_neighbor_for_shorter_global_tour():
+    home = (0.0, 0.0)
+    coords = [
+        (0.0, 2.0, 10.0),
+        (0.0, 3.0, 10.0),
+        (2.0, 0.0, 10.0),
+        (3.0, 0.0, 10.0),
     ]
+
+    ordered = order_waypoints(coords, mode="unordered", home=home)
+
+    # Grouping nearby points yields a shorter closed tour than taking the
+    # nearest point first and then crossing between the two clusters.
+    assert ordered in (
+        [coords[0], coords[1], coords[3], coords[2]],
+        [coords[2], coords[3], coords[1], coords[0]],
+    )
 
 
 def test_ordered_keeps_user_waypoint_order():

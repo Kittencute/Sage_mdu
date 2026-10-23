@@ -1,0 +1,8 @@
+---
+string[] labels
+float64[] latitudes
+float64[] longitudes
+float64[] x_lengths
+float64[] y_lengths
+float64[] yaw_degs
+bool[] active

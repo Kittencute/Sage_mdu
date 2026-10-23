@@ -84,7 +84,7 @@ By the end of the course TerraScout will plan, adapt and finish missions of four
 - [ ] **MPR-06** For every trial, the team shall record temperature and exposure to rain, dust or mud, and compare them with ARES REQ-150, REQ-160 and REQ-170. Environmental compliance is not an acceptance criterion.
 - [ ] **MPR-07** The team shall verify runtime keepout behaviour using approved scripted updates that do not require operator input during autonomous movement.
 - [x] **MPR-08** For every mechanical change, the team shall measure the affected capability before and after the change.
-- [ ] **MPR-09** Before assessed trials, the team shall document the rules for ordering, keepout updates, unreachable destinations and restoration, and obtain approval from the project owner.
+- [Pending] **MPR-09** Before assessed trials, the team shall document the rules for ordering, keepout updates, unreachable destinations and restoration, and obtain approval from the project owner.
 - [x] **MPR-10** The team shall use published work to justify its design and evaluation choices.
 
 ### 5.2 Product Requirements
@@ -94,23 +94,23 @@ Base requirements are mandatory. Extra requirements apply only if time allows.
 - [ ] **MIS-03** Base. A visible warning shall begin at least 5 s before autonomous movement and remain active throughout that movement (ARES REQ-350 and REQ-360).
 - [x*] **MIS-04** Base. The vehicle shall not exceed 1 m/s when moving forwards or backwards on flat ground or slopes (ARES REQ-180).
 - [x*] **MIS-05** Base. During autonomous motion, the vehicle shall slow as it approaches an obstacle in its path and shall stop before reaching the obstacle. Before assessed trials, the team shall obtain approval from the project owner for the slowing and stopping distances.
-- [ ] **MIS-06** Base. When the published localisation status reports that the pose estimate is unreliable, the vehicle shall stop autonomous motion within 2 s and report a localisation fault.
+- [x*] **MIS-06** Base. When the published localisation status reports that the pose estimate is unreliable, the vehicle shall stop autonomous motion within 2 s and report a localisation fault.
 - [x*] **MIS-07** Base. Manual driving and takeover commands shall have priority over autonomous commands.
 - [ ] **MIS-08** Base. If the command link is lost while the vehicle is under manual control, the vehicle shall stop within 1 s and report the loss.
 - [ ] **MIS-09** Base. If the operator telemetry link is lost during autonomous motion, the vehicle shall stop after a configurable timeout with a default of 10 s and report the loss.
-- [x?] **MIS-10** Base. The vehicle shall accept four unordered destinations, a final destination and named circular or polygonal keepout areas in map coordinates. The vehicle shall reject an invalid mission and report the reason.
-- [x?] **MIS-11** Base. The vehicle shall use path lengths to determine which destinations are reachable and select their order. The vehicle shall publish the mission’s overall status, the selected order, the status and outcome of each destination, and the reason for every change of order.
-- [x?] **MIS-12** Base. During a normal assessed mission, the vehicle shall execute without control input except for a safety intervention (ARES REQ-330). The explicit resume command in an interruption trial is permitted.
-- [] **MIS-13** Base. During execution, the vehicle shall accept automated updates that add or change a named circular or polygonal keepout area and its required clearance, or remove an existing area.
-- [x?] **MIS-14** Base. When a keepout update blocks the current path, the vehicle shall request a new path. Where that update changes the reachability or path length of any remaining destination, the vehicle shall also select a new order.
-- [x?] **MIS-15** Base. If no valid path to a destination is available after the approved recovery period, the vehicle shall apply the policy approved under MPR-09. The vehicle shall report the destination, outcome and reason, and proceed to the next destination unless the policy requires the mission to stop.
-- [x?] **MIS-16** Base. Whenever the mission or any destination changes status, the vehicle shall preserve the mission identifier, the status of each destination, the keepout areas, the selected order and any failure reasons.
+- [x*] **MIS-10** Base. The vehicle shall accept four unordered destinations, a final destination and named circular or polygonal keepout areas in map coordinates. The vehicle shall reject an invalid mission and report the reason.
+- [x*] **MIS-11** Base. The vehicle shall use path lengths to determine which destinations are reachable and select their order. The vehicle shall publish the mission’s overall status, the selected order, the status and outcome of each destination, and the reason for every change of order.
+- [x*] **MIS-12** Base. During a normal assessed mission, the vehicle shall execute without control input except for a safety intervention (ARES REQ-330). The explicit resume command in an interruption trial is permitted.
+- [Pending] **MIS-13** Base. During execution, the vehicle shall accept automated updates that add or change a named circular or polygonal keepout area and its required clearance, or remove an existing area.
+- [x*] **MIS-14** Base. When a keepout update blocks the current path, the vehicle shall request a new path. Where that update changes the reachability or path length of any remaining destination, the vehicle shall also select a new order.
+- [x*] **MIS-15** Base. If no valid path to a destination is available after the approved recovery period, the vehicle shall apply the policy approved under MPR-09. The vehicle shall report the destination, outcome and reason, and proceed to the next destination unless the policy requires the mission to stop.
+- [x*] **MIS-16** Base. Whenever the mission or any destination changes status, the vehicle shall preserve the mission identifier, the status of each destination, the keepout areas, the selected order and any failure reasons.
 - [x*] **MIS-17** Base. After manual takeover or a process restart, the vehicle shall remain stopped and restore the mission in a suspended state. Resuming shall require an explicit command, valid localisation and new paths.
 - [ ] **MIS-18** Base. The vehicle shall maintain control and telemetry at a range of 100 m (ARES REQ-200) and when natural terrain blocks the line of sight (ARES REQ-210). A separate test shall evaluate operation with other wireless networks active (ARES REQ-080).
 - [x*] **MIS-19** Base. The vehicle shall support at least 20 min of continuous mission operation (ARES REQ- 370).
 - [x*] **MIS-20** Base. In an assessed trial, the nearest vehicle edge shall pass within 1 m of each completed destination, following the Task 1 scoring distance, and the mission shall finish within 20 min.
-- [ ] **MIS-21** Base. On a common time base, the vehicle shall record mission state, order, paths, keepout areas, commands, mode, faults, interventions, position, localisation and obstacle data.
-- [x?] **MIS-22** Base. A script shall summarise each order change and destination outcome, including the reason. The script shall also report minimum distances, completion time, distance driven, stops, interventions and faults.
+- [x*] **MIS-21** Base. On a common time base, the vehicle shall record mission state, order, paths, keepout areas, commands, mode, faults, interventions, position, localisation and obstacle data.
+- [x*] **MIS-22** Base. A script shall summarise each order change and destination outcome, including the reason. The script shall also report minimum distances, completion time, distance driven, stops, interventions and faults.
 - [x?] **MIS-23** Extra. Given a bounded search area and required spacing, the vehicle shall generate and execute a patrol through that area while respecting all active keepout areas and the Base safety requirements.
 - [x?] **MIS-24** Extra. A SLaRC-MISSION adapter shall map configured classes or attributes in live SLaRC- PERCEPTION records to keepout areas sized for position uncertainty and vehicle dimensions. In the shared outdoor trial, an enemy record shall create a keepout area and an allied record shall not. Where the new area blocks the current path, the vehicle shall revise its remaining mission and shall keep the nearest vehicle edge at least 2 m from the enemy object.
 
@@ -118,8 +118,8 @@ Base requirements are mandatory. Extra requirements apply only if time allows.
 The course project is complete once every project requirement is met and every product requirement has a documented pass or fail. The system is accepted for research trials once every Base product requirement passes and every criterion below is satisfied. A failed Extra requirement does not block acceptance.
 - [x*] 1. The team attempts at least five assessed missions, of which three or more pass. In each passing trial, the vehicle reports a feasible order, visits every destination within 1 m, finishes within 20 min and receives no control input.
 - [x*] 2. Scripted updates add, change and remove the specified keepout areas. When an update blocks a path, the vehicle requests another path and, if reachability or path lengths change, selects a new order. Every required clearance is maintained.
-- [ ] 3. When one destination cannot be reached, the vehicle applies the approved policy and reports the destination, outcome and reason. The vehicle then proceeds to the next destination unless the policy requires the mission to stop.
-- [x?] 4. After manual takeover and a deliberate restart, the vehicle remains stopped and restores the suspended mission. Resuming requires an explicit resume command, valid localisation and new paths.
+- [x*] 3. When one destination cannot be reached, the vehicle applies the approved policy and reports the destination, outcome and reason. The vehicle then proceeds to the next destination unless the policy requires the mission to stop.
+- [x*] 4. After manual takeover and a deliberate restart, the vehicle remains stopped and restores the suspended mission. Resuming requires an explicit resume command, valid localisation and new paths.
 - [ ] 5. Recordings of deliberate emergency-stop, obstacle, localisation, manual-link and telemetry-link faults show the vehicle stopping as required.
 - [ ] 6. Someone who did not observe the trial identifies one injected fault from the trial’s recording and summary alone.
 - [ ] 7. A researcher outside the team runs the mission from the operating procedure alone.

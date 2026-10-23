@@ -82,14 +82,22 @@
 ## Mission management
 - [x] Mission routing
   - [x] Ordered and unordered missions
+  - [x] Ordered missions preserve the submitted sequence after keepout updates
+  - [x] Unordered missions recalculate the remaining route after keepout updates
+  - [x] Skip destinations covered by updated keepout zones
+  - [x] Stop active navigation before failing a newly blocked active waypoint
   - [x] Home and return
   - [x] Mission CLI options
 - [x] Waypoint updates
   - [x] Clear and add points
   - [x] Return to saved Home
 - [ ] Mission validation
-  - [ ] Verify waypoint order
-  - [ ] Test failure continuation
+  - [x] Verify waypoint order in unit tests for ordered and unordered modes
+  - [ ] In simulation, verify ordered routes retain their sequence after a keepout update
+  - [ ] In simulation, verify unordered routes select a new best remaining order after a keepout update
+  - [ ] Verify active-goal cancellation and continuation when a keepout appears over its destination
+  - [ ] Verify future destinations inside keepouts are skipped and reported failed
+  - [x] Test waypoint failure continuation and terminal behavior in unit tests
   - [ ] Check mission range
   - [ ] Edit failed waypoint
   - [ ] Verify GeoJSON waypoint statuses remain consistent with `MissionState` after failure and backtracking

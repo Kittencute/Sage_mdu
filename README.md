@@ -55,7 +55,7 @@ make use TARGET=sim-record
 make up
 ```
 
-Let the robot run the route you want to evaluate. To stop, either press **Ctrl+C** in the terminal running `make up` and wait for it to return to the prompt, or run `make down` from another terminal. Wait for the stack and recorder to stop normally so the bag metadata is written. Bags are stored under `.sage/run/1/recordings/terrascout1/` (the `1` is the SAGE instance; change it if using `SAGE_INSTANCE` other than 1). Rosbag splits output at 60-second intervals.
+Let the robot run the route you want to evaluate. To stop, either press **Ctrl+C** in the terminal running `make up` and wait for it to return to the prompt, or run `make down` from another terminal. Wait for the stack and recorder to stop normally so the bag metadata is written. While recording, bags are under `.sage/run/1/recordings/terrascout1/` (the `1` is the SAGE instance; change it if using `SAGE_INSTANCE` other than 1); after a run is saved, its bags are archived under `runs/<run-id>/recordings/terrascout1/`. Rosbag splits output at 60-second intervals.
 
 The mission tester creates a timestamped `mission_YYYYMMDD_HHMMSS` directory under `src/terrascout_mission_tester/mission_results/` when it launches a preset route. It stores the selected ordered route in `waypoints.json`, launch details in `metadata.json`, and client output in `mission_client.log`. The client log does not prove that the mission was accepted or completed. After stopping the stack normally, run the single post-processing entrypoint from the workspace root. It selects the newest completed bag, reuses a results bundle already associated with that exact recording (or a tester bundle created during that bag's recording), and otherwise creates a bundle with the same timestamp format from the bag's start time. It does not choose an unrelated folder just because that folder was modified most recently. Both analyses write to the same selected bundle:
 
@@ -146,9 +146,11 @@ Mission command behavior:
 - `--sethome lat,lon` sets a new Home position without starting a mission
 - `--clear` cancels the active mission and clears its waypoints from the server and Foxglove
 - `--ordered` keeps the waypoint sequence exactly as provided (default)
-- `--unordered` reorders waypoints using a nearest-next route
+- `--unordered` chooses the shortest full route from mission start through all waypoints and back to mission start, using straight-line distance
 - `--add --ordered lat,lon` adds a waypoint after the remaining waypoints in the active mission
 - `--add --unordered lat,lon` adds a waypoint and reorders the remaining unvisited waypoints
+
+When keepout zones change during a mission, an ordered mission keeps its remaining waypoint sequence. An unordered mission recalculates the best order for its remaining eligible waypoints using straight-line distances. A waypoint covered by a keepout is marked failed; when it is the active target, the server first stops its navigation goal and then continues according to the configured waypoint-failure policy. Nav2 separately replans each active leg using its costmaps. The route-order optimizer does not evaluate Nav2 path length or guarantee that a destination is reachable; validate keepout changes and obstacle recovery in simulation.
 
 ### Build a mission by clicking in Foxglove
 
