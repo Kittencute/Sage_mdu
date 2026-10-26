@@ -152,7 +152,7 @@ def read_waypoint_snapshot(bag_path: Path, topic: str, end_time: float):
     type_map = {entry.name: entry.type for entry in reader.get_all_topics_and_types()}
     if topic not in type_map:
         print(f"WARNING: waypoint topic {topic} is not in the bag")
-        return []
+        return [], None
     try:
         message_type = get_message(type_map[topic])
     except (ImportError, AttributeError, ModuleNotFoundError):
@@ -200,9 +200,10 @@ def read_waypoint_snapshot(bag_path: Path, topic: str, end_time: float):
             snapshots.append((message_time, points))
     if not snapshots:
         print(f"WARNING: no waypoint snapshot found on {topic}")
-        return []
+        return [], None
     print(f"{topic}: using waypoint snapshot at bag time {max(snapshots, key=lambda x: x[0])[0]:.3f}s")
-    return max(snapshots, key=lambda item: item[0])[1]
+    selected = max(snapshots, key=lambda item: item[0])
+    return selected[1], selected[0]
 
 
 def local_enu_xy(longitude, latitude, origin_longitude, origin_latitude):
@@ -286,6 +287,60 @@ def read_map_odom_transform(bag_path: Path, namespace: str):
     return lambda points: points @ rotation.T + translation
 
 
+def read_keepout_zones(bag_path: Path, topic: str, end_time: float, map_to_odom=None):
+    """Read the last active cube markers and convert their footprints to odom XY."""
+    reader = rosbag2_py.SequentialReader()
+    reader.open(
+        rosbag2_py.StorageOptions(uri=str(bag_path), storage_id="mcap"),
+        rosbag2_py.ConverterOptions("", ""),
+    )
+    type_map = {entry.name: entry.type for entry in reader.get_all_topics_and_types()}
+    if topic not in type_map:
+        print(f"WARNING: keepout marker topic {topic} is not in the bag")
+        return []
+    if type_map[topic] != "visualization_msgs/msg/Marker":
+        print(f"WARNING: {topic} has type {type_map[topic]}, expected visualization_msgs/msg/Marker")
+        return []
+    marker_type = get_message(type_map[topic])
+    latest = {}
+    while reader.has_next():
+        current_topic, serialized, received_ns = reader.read_next()
+        if current_topic != topic or received_ns * 1e-9 > end_time:
+            continue
+        marker = deserialize_message(serialized, marker_type)
+        if marker.action == marker.DELETEALL:
+            latest.clear()
+        elif marker.action == marker.DELETE:
+            latest.pop((marker.ns, marker.id), None)
+        elif marker.type == marker.CUBE:
+            latest[(marker.ns, marker.id)] = marker
+
+    zones = []
+    for marker in latest.values():
+        frame = marker.header.frame_id.lstrip("/")
+        center = np.array([marker.pose.position.x, marker.pose.position.y])
+        yaw = 2.0 * np.arctan2(marker.pose.orientation.z, marker.pose.orientation.w)
+        rotation = np.array([[np.cos(yaw), -np.sin(yaw)], [np.sin(yaw), np.cos(yaw)]])
+        local = np.array([
+            [-marker.scale.x / 2, -marker.scale.y / 2],
+            [ marker.scale.x / 2, -marker.scale.y / 2],
+            [ marker.scale.x / 2,  marker.scale.y / 2],
+            [-marker.scale.x / 2,  marker.scale.y / 2],
+        ])
+        polygon = local @ rotation.T + center
+        if frame == "map" or frame.endswith("/map"):
+            if map_to_odom is None:
+                print("WARNING: keepout markers are in map frame but no map-to-odom transform was recorded; overlay omitted")
+                continue
+            polygon = map_to_odom(polygon)
+        elif frame not in ("odom", "") and not frame.endswith("/odom"):
+            print(f"WARNING: keepout marker frame {frame!r} is unsupported; overlay omitted")
+            continue
+        zones.append({"label": marker.text or f"Keepout {marker.id}", "points": polygon})
+    print(f"{topic}: plotting {len(zones)} recorded keepout zone(s)")
+    return zones
+
+
 def arrays(rows):
     return (
         np.array([row[0] for row in rows], dtype=float),
@@ -354,7 +409,8 @@ def save_plot(path: Path, seconds, series, ylabel: str, title: str):
 
 
 def save_trajectory_plot(
-    path: Path, gt_position, lio_position, planned_paths=(), waypoints=(), show=False
+    path: Path, gt_position, lio_position, planned_paths=(), waypoints=(),
+    keepout_zones=(), show=False
 ):
     """Save an XY overlay and optionally display it interactively."""
     if plt is None:
@@ -365,6 +421,14 @@ def save_trajectory_plot(
         lio_position[:, 0], lio_position[:, 1],
         label="FAST-LIO2", linewidth=1.5,
     )
+    for zone in keepout_zones:
+        polygon = np.vstack((zone["points"], zone["points"][0]))
+        plt.fill(polygon[:, 0], polygon[:, 1], color="#ef4444", alpha=0.2, zorder=1)
+        plt.plot(polygon[:, 0], polygon[:, 1], color="#dc2626", linewidth=1.5, zorder=2)
+        center = np.mean(zone["points"], axis=0)
+        plt.annotate(zone["label"], center, color="#991b1b", fontsize=8, ha="center")
+    if keepout_zones:
+        plt.plot([], [], color="#dc2626", linewidth=1.5, label="Keepout zone")
     status_colors = {
         "pending": "#3b82f6", "completed": "#22c55e", "failed": "#ef4444",
         "active": "#f97316", "skipped": "#9ca3af",
@@ -405,7 +469,7 @@ def save_trajectory_plot(
     plt.title("FAST-LIO2 trajectory vs ground truth")
     plt.axis("equal")
     plt.grid(True)
-    # plt.legend()  # Temporarily hide labels on the trajectory comparison only.
+    plt.legend()
     plt.tight_layout()
     plt.savefig(path, dpi=160)
     if show:
@@ -440,6 +504,7 @@ def main():
     parser.add_argument("--plan-topic", default="/terrascout1/plan")
     parser.add_argument("--waypoints-topic", default="/terrascout1/waypoints_geo")
     parser.add_argument("--datum-topic", default="/terrascout1/fixposition/datum")
+    parser.add_argument("--keepout-marker-topic", default="/terrascout1/keepout_zone_marker")
     parser.add_argument(
         "--plan-to-odom-x", type=float,
         help="known map-to-odom translation X [m]; omit unless calibrated",
@@ -509,9 +574,11 @@ def main():
         raise RuntimeError(f"Planned path changes frame in the plot interval: {sorted(plan_frames)}")
     plan_frame = next(iter(plan_frames), None)
     ground_truth_frame = next(iter(frames[args.ground_truth_topic]))[0]
+    map_to_odom = read_map_odom_transform(
+        args.bag, args.plan_topic.strip("/").split("/")[0]
+    )
     if plan_frame and plan_frame != ground_truth_frame:
         if plan_frame == "map":
-            map_to_odom = read_map_odom_transform(args.bag, args.plan_topic.strip("/").split("/")[0])
             if map_to_odom is not None:
                 planned_paths = [
                     (stamp, frame_id, map_to_odom(points))
@@ -539,7 +606,12 @@ def main():
                 f"{ground_truth_frame!r}; overlay hidden."
             )
             planned_paths = []
-    waypoint_geo = read_waypoint_snapshot(args.bag, args.waypoints_topic, float(t[-1]))
+    waypoint_geo, waypoint_snapshot_time = read_waypoint_snapshot(
+        args.bag, args.waypoints_topic, float(t[-1])
+    )
+    keepout_zones = read_keepout_zones(
+        args.bag, args.keepout_marker_topic, float(t[-1]), map_to_odom
+    )
     waypoint_points = []
     if waypoint_geo:
         datum = read_datum(args.bag, args.datum_topic)
@@ -551,6 +623,23 @@ def main():
                 )
         else:
             print("Waypoint markers omitted because they cannot be placed in the odometry frame safely")
+    home_markers = [point for point in waypoint_points if point[2].lower() == "home"]
+    if home_markers:
+        home = home_markers[-1]
+        final_home_distance = float(np.linalg.norm(gt_imu_p[-1, :2] - np.array(home[:2])))
+        all_waypoints_done = all(
+            status == "completed" for _, _, name, status, _ in waypoint_points
+            if name.lower() != "home"
+        )
+        if all_waypoints_done and final_home_distance <= 1.0:
+            waypoint_points = [
+                (x, y, name, "completed" if name.lower() == "home" else status, color)
+                for x, y, name, status, color in waypoint_points
+            ]
+            print(
+                f"Home marker shown completed: all waypoints completed and final "
+                f"ground-truth position is {final_home_distance:.2f} m from Home"
+            )
     recording_start = recording_start_datetime(args.bag, args.recording_start)
     if recording_start is None:
         file_datetime = datetime.now(SWEDISH_TIMEZONE)
@@ -623,7 +712,7 @@ def main():
     )
     save_trajectory_plot(
         args.out_dir / f"{output_prefix}trajectory_comparison.png", gt_imu_p, lio_p_aligned,
-        planned_paths=planned_paths, waypoints=waypoint_points,
+        planned_paths=planned_paths, waypoints=waypoint_points, keepout_zones=keepout_zones,
         show=args.show_trajectory,
     )
     if recording_start is None:
