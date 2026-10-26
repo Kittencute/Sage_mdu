@@ -9,10 +9,13 @@ coordinates, vehicle footprint, and scoring-distance conversion.
 import argparse
 import csv
 from datetime import datetime, timezone
+import hashlib
 import json
 import math
 from pathlib import Path
 import re
+import statistics
+import subprocess
 from zoneinfo import ZoneInfo
 
 import rosbag2_py
@@ -41,6 +44,30 @@ def recording_datetime_tag(bag: Path):
         return datetime.now(SWEDISH_TIMEZONE).strftime("%Y%m%dT%H%M%S")
     start = datetime(*(int(value) for value in match.groups()), tzinfo=timezone.utc)
     return start.astimezone(SWEDISH_TIMEZONE).strftime("%Y%m%dT%H%M%S")
+
+
+def workspace_provenance(workspace: Path):
+    """Capture processing-time git and config fingerprints, not historical guarantees."""
+    def git_value(*args):
+        result = subprocess.run(
+            ["git", "-C", str(workspace), *args], capture_output=True, text=True, check=False
+        )
+        return result.stdout.strip() if result.returncode == 0 else None
+
+    config_files = {}
+    for relative in ("src/terrascout_navigation/config/fast_lio_sim.yaml",
+                     "src/terrascout_navigation/config/nav2.yaml"):
+        path = workspace / relative
+        if path.is_file():
+            config_files[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return {
+        "captured_at_utc": datetime.now(timezone.utc).isoformat(),
+        "git_commit": git_value("rev-parse", "HEAD"),
+        "git_branch": git_value("branch", "--show-current"),
+        "working_tree_dirty": bool(git_value("status", "--porcelain")),
+        "configuration_sha256_at_processing_time": config_files,
+        "caveat": "These identify the workspace at report-processing time; they do not prove the same revision/configuration was active during recording.",
+    }
 
 
 def load_states(bag: Path, topic: str):
@@ -398,6 +425,24 @@ def summarize_faults(samples, rosout_topic):
     return faults, None
 
 
+def summarize_keepout_events(samples, rosout_topic):
+    """Extract keepout server zone lifecycle logs when rosout captured them."""
+    events = []
+    for stamp, message in sorted(samples.get(rosout_topic, []), key=lambda item: item[0]):
+        name = str(getattr(message, "name", ""))
+        text = str(getattr(message, "msg", ""))
+        lowered = f"{name} {text}".lower()
+        if "keepout" not in lowered and not re.search(r"\bzone\b", lowered):
+            continue
+        if not re.search(r"\b(created|updated|deleted|restored|restore|removed|clear)\b", lowered):
+            continue
+        events.append({
+            "timestamp_rosbag_ns": int(stamp), "component": name,
+            "severity": int(getattr(message, "level", 0)), "message": text,
+        })
+    return events
+
+
 def write_events(states, path: Path, mission_id: int | None):
     fields = ["timestamp_rosbag_ns", "mission_id", "mission_status", "current_command_id",
               "selected_order", "command_id", "command_status", "command_failure_reason",
@@ -478,17 +523,267 @@ def split_mission_instances(states):
     return sorted(instances, key=lambda entry: entry["states"][0][0])
 
 
+def summarize_error_csv(path: Path | None, elapsed_window: tuple[float, float] | None = None):
+    """Summarize an existing FAST-LIO comparison CSV without inventing data."""
+    if path is None or not path.is_file():
+        return None
+    rows = []
+    with path.open(newline="", encoding="utf-8") as stream:
+        for row in csv.DictReader(stream):
+            try:
+                numeric = {key: float(value) for key, value in row.items()
+                           if key != "datetime" and value not in (None, "")}
+                if elapsed_window is None or elapsed_window[0] <= numeric.get("elapsed_s", -math.inf) <= elapsed_window[1]:
+                    rows.append(numeric)
+            except (TypeError, ValueError):
+                continue
+    if not rows:
+        return None
+
+    def stats(column):
+        values = [row[column] for row in rows if column in row and math.isfinite(row[column])]
+        if not values:
+            return None
+        ordered = sorted(values)
+
+        def percentile(percent):
+            index = (len(ordered) - 1) * percent / 100.0
+            low, high = math.floor(index), math.ceil(index)
+            return ordered[low] if low == high else ordered[low] * (high - index) + ordered[high] * (index - low)
+
+        return {
+            "count": len(values), "mean": statistics.fmean(values),
+            "median": statistics.median(values),
+            "rmse": math.sqrt(statistics.fmean(value * value for value in values)),
+            "stddev": statistics.pstdev(values), "min": ordered[0], "max": ordered[-1],
+            "p90": percentile(90), "p95": percentile(95), "p99": percentile(99),
+        }
+
+    columns = ("error_x_m", "error_y_m", "error_z_m", "error_xy_m", "error_3d_m",
+               "error_roll_deg", "error_pitch_deg", "error_yaw_deg", "error_rotation_deg",
+               "nearest_gt_stamp_dt_s")
+    summary = {column: stats(column) for column in columns}
+    elapsed = [row["elapsed_s"] for row in rows if "elapsed_s" in row]
+    sync_ms = [value * 1000.0 for value in
+               (row["nearest_gt_stamp_dt_s"] for row in rows if "nearest_gt_stamp_dt_s" in row)]
+    trajectory_lengths = {}
+    coordinate_sets = {
+        "ground_truth": ("gt_imu_x_m", "gt_imu_y_m", "gt_imu_z_m"),
+        "fast_lio_aligned": ("lio_aligned_x_m", "lio_aligned_y_m", "lio_aligned_z_m"),
+    }
+    for label, axes in coordinate_sets.items():
+        if all(all(axis in row for axis in axes) for row in rows):
+            trajectory_lengths[label] = sum(
+                math.sqrt(sum((second[axis] - first[axis]) ** 2 for axis in axes))
+                for first, second in zip(rows, rows[1:])
+            )
+    final_drift = ({key: rows[-1][key] for key in
+                    ("error_xy_m", "error_3d_m", "error_rotation_deg")}
+                   if all(key in rows[-1] for key in
+                          ("error_xy_m", "error_3d_m", "error_rotation_deg")) else None)
+    gt_length = trajectory_lengths.get("ground_truth")
+    summary.update({
+        "csv_path": str(path), "sample_count": len(rows),
+        "elapsed_window_s": list(elapsed_window) if elapsed_window else None,
+        "elapsed_duration_s": max(elapsed) - min(elapsed) if len(elapsed) > 1 else 0.0,
+        "mean_update_frequency_hz": (len(elapsed) - 1) / (max(elapsed) - min(elapsed))
+        if len(elapsed) > 1 and max(elapsed) > min(elapsed) else None,
+        "trajectory_lengths_m": trajectory_lengths or None,
+        "final_drift": final_drift,
+        "horizontal_drift_per_ground_truth_meter": (
+            rows[-1]["error_xy_m"] / gt_length
+            if gt_length and "error_xy_m" in rows[-1] else None
+        ),
+        "timestamp_offset_ms": {
+            "mean": statistics.fmean(sync_ms), "max": max(sync_ms),
+            "p95": sorted(sync_ms)[min(len(sync_ms) - 1, math.ceil(.95 * len(sync_ms)) - 1)],
+        } if sync_ms else None,
+    })
+    return summary
+
+
+def summarize_command_timing(events):
+    """Derive command elapsed time from recorded command-status transitions."""
+    started = {}
+    results = {}
+    for event in events:
+        if event.get("event") != "command_status_changed" or not event.get("command_id"):
+            continue
+        command_id = int(event["command_id"])
+        status = event.get("command_status")
+        stamp = int(event["timestamp_rosbag_ns"])
+        if status == "RUNNING":
+            started.setdefault(command_id, stamp)
+        elif status in ("FINISHED", "FAILED", "ABORTED"):
+            begin = started.get(command_id)
+            results[command_id] = {
+                "command_id": command_id, "status": status,
+                "start_rosbag_ns": begin, "end_rosbag_ns": stamp,
+                "elapsed_s": (stamp - begin) / 1e9 if begin is not None else None,
+                "failure_reason": event.get("command_failure_reason", ""),
+            }
+    return [results[key] for key in sorted(results)]
+
+
+def summarize_leg_metrics(command_timing, odometry, cmd_vel, plans, destinations, start_ns):
+    """Estimate leg distance and speed from odometry and velocity samples."""
+    results = []
+    destination_by_id = {item.get("command_id"): item for item in destinations
+                         if item.get("command_id") is not None}
+    odometry_rows = sorted(odometry, key=lambda item: item[0])
+    velocities = sorted(cmd_vel, key=lambda item: item[0])
+    plan_stamps = [stamp for stamp, _ in plans]
+    for timing in command_timing:
+        begin, end = timing.get("start_rosbag_ns"), timing["end_rosbag_ns"]
+        if begin is None:
+            continue
+        pose_rows = [(stamp, msg) for stamp, msg in odometry_rows if begin <= stamp <= end]
+        distance = 0.0
+        for (_, first), (_, second) in zip(pose_rows, pose_rows[1:]):
+            p1, p2 = first.pose.pose.position, second.pose.pose.position
+            distance += math.hypot(p2.x - p1.x, p2.y - p1.y)
+        duration = max(0.0, (end - begin) / 1e9)
+        velocity_rows = [(stamp, msg) for stamp, msg in velocities if begin <= stamp <= end]
+        moving_samples = []
+        stopped_samples = 0
+        moving_duration_s = 0.0
+        stopped_duration_s = 0.0
+        for _, msg in velocity_rows:
+            twist = msg.twist if hasattr(msg, "twist") else msg
+            speed = math.hypot(float(twist.linear.x), float(twist.linear.y))
+            if speed > 0.02:
+                moving_samples.append(speed)
+            else:
+                stopped_samples += 1
+        for (stamp_a, msg_a), (stamp_b, _) in zip(velocity_rows, velocity_rows[1:]):
+            dt = max(0.0, min((stamp_b - stamp_a) / 1e9, 0.25))
+            twist = msg_a.twist if hasattr(msg_a, "twist") else msg_a
+            if (math.hypot(float(twist.linear.x), float(twist.linear.y)) > 0.02
+                    or abs(float(twist.angular.z)) > 0.02):
+                moving_duration_s += dt
+            else:
+                stopped_duration_s += dt
+        leg_plans = [(stamp, msg) for stamp, msg in plans if begin <= stamp <= end]
+        planned_distance = None
+        if leg_plans:
+            path = leg_plans[-1][1]
+            path_poses = path.poses
+            if len(path_poses) > 1:
+                planned_distance = sum(
+                    math.hypot(b.pose.position.x - a.pose.position.x,
+                               b.pose.position.y - a.pose.position.y)
+                    for a, b in zip(path_poses, path_poses[1:])
+                )
+        start_pose = pose_rows[0][1].pose.pose.position if pose_rows else None
+        end_pose = pose_rows[-1][1].pose.pose.position if pose_rows else None
+        results.append({
+            **timing,
+            "target": destination_by_id.get(timing["command_id"]),
+            "actual_distance_m": distance if len(pose_rows) > 1 else None,
+            "planned_distance_m": planned_distance,
+            "start_position_xy_m": [start_pose.x, start_pose.y] if start_pose else None,
+            "end_position_xy_m": [end_pose.x, end_pose.y] if end_pose else None,
+            "mean_speed_mps": statistics.fmean(moving_samples) if moving_samples else None,
+            "max_speed_mps": max(moving_samples) if moving_samples else None,
+            "moving_velocity_samples": len(moving_samples),
+            "stopped_velocity_samples": stopped_samples,
+            "moving_duration_s_estimate": moving_duration_s,
+            "stopped_duration_s_estimate": stopped_duration_s,
+            "replan_path_messages": sum(begin <= stamp <= end for stamp in plan_stamps),
+        })
+    return results
+
+
+def summarize_velocity_stream(samples, intervals=None):
+    """Summarize recorded velocity-message cadence and values in selected windows."""
+    selected = sorted(
+        ((stamp, msg) for stamp, msg in samples
+         if intervals is None or any(begin <= stamp <= end for begin, end in intervals)),
+        key=lambda item: item[0],
+    )
+    stamps = [stamp for stamp, _ in selected]
+    gaps_ms = [(b - a) / 1e6 for a, b in zip(stamps, stamps[1:])]
+    gaps_sorted = sorted(gaps_ms)
+    values = []
+    zero_count = 0
+    for _, msg in selected:
+        twist = msg.twist if hasattr(msg, "twist") else msg
+        linear = math.hypot(float(twist.linear.x), float(twist.linear.y))
+        angular = abs(float(twist.angular.z))
+        values.append((linear, angular))
+        zero_count += linear <= 0.02 and angular <= 0.02
+    return {
+        "message_count": len(selected),
+        "mean_frequency_hz": ((len(stamps) - 1) / ((stamps[-1] - stamps[0]) / 1e9)
+                               if len(stamps) > 1 and stamps[-1] > stamps[0] else None),
+        "median_interval_ms": statistics.median(gaps_ms) if gaps_ms else None,
+        "p95_interval_ms": (gaps_sorted[math.ceil(0.95 * len(gaps_sorted)) - 1]
+                             if gaps_sorted else None),
+        "max_interval_ms": max(gaps_ms) if gaps_ms else None,
+        "gaps_over_100ms": sum(gap > 100.0 for gap in gaps_ms),
+        "gaps_over_200ms": sum(gap > 200.0 for gap in gaps_ms),
+        "mean_absolute_linear_velocity_mps": statistics.fmean(v[0] for v in values) if values else None,
+        "max_absolute_linear_velocity_mps": max((v[0] for v in values), default=None),
+        "mean_absolute_angular_velocity_radps": statistics.fmean(v[1] for v in values) if values else None,
+        "max_absolute_angular_velocity_radps": max((v[1] for v in values), default=None),
+        "zero_velocity_percentage": 100.0 * zero_count / len(values) if values else None,
+    }
+
+
+def summarize_controller_diagnostics(samples, rosout_topic):
+    """Count controller-related warning/error/recovery log messages, if recorded."""
+    if rosout_topic not in samples:
+        return {"frequency_warnings": None, "controller_failures": None,
+                "controller_recoveries": None}
+    counts = {"frequency_warnings": 0, "controller_failures": 0,
+              "controller_recoveries": 0}
+    for _, message in samples[rosout_topic]:
+        text = f"{getattr(message, 'name', '')} {getattr(message, 'msg', '')}".lower()
+        if not any(token in text for token in ("controller", "mppi", "follow_path")):
+            continue
+        if "frequency" in text and ("warn" in text or getattr(message, "level", 0) >= 30):
+            counts["frequency_warnings"] += 1
+        if any(token in text for token in ("failed", "failure", "exception")):
+            counts["controller_failures"] += 1
+        if "recover" in text:
+            counts["controller_recoveries"] += 1
+    return counts
+
+
 def render_readable_report(report):
-    """Render a concise Markdown summary for operators; JSON remains machine-readable."""
+    """Render the analysis, data coverage, and caveats for operators."""
     mis22 = report["mis22"]
     mis21 = report["mis21"]
     metrics = mis22["metrics"]
+    validation = mis21.get("timestamp_validation", {})
+    mis20 = report.get("mis20", {})
     title = report.get("mission_label") or f"Mission {report['mission_id']}"
     lines = [
         f"# {title}",
         "",
         f"**Outcome:** {report['final_mission_status']}  ",
         f"**Duration:** {report['duration_s']:.1f} s  ",
+        f"**Mission run:** {report.get('mission_run_id', 'not recorded')}  ",
+        f"**Bag time window:** {report.get('started_at_rosbag_ns', 'unknown')}–{report.get('ended_at_rosbag_ns', 'unknown')} ns  ",
+        f"**Time base:** {report.get('time_base', 'not recorded')}  ",
+        f"**Recording:** `{report.get('recording', 'not recorded')}`  ",
+        f"**Mission-state topic:** `{report.get('state_topic', 'not recorded')}`  ",
+        f"**Failure reason:** {report.get('mission_failure_reason') or 'none recorded'}  ",
+        "",
+        "## Experiment metadata",
+        "",
+        f"- Mission name: {report.get('bundle_metadata', {}).get('mission_name', 'Not collected')}",
+        f"- Preset: {report.get('bundle_metadata', {}).get('mission_preset', 'Not collected')}",
+        f"- Namespace: {report.get('bundle_metadata', {}).get('namespace', 'Not collected')}",
+        f"- Ordering mode: {report.get('bundle_metadata', {}).get('ordering_mode', 'Not collected')}",
+        f"- Final destination option: {report.get('bundle_metadata', {}).get('final_destination_option', 'Not collected')}",
+        f"- Bundle created: {report.get('bundle_metadata', {}).get('bundle_created_at', 'Not collected')}",
+        f"- Mission client submission status: {report.get('bundle_metadata', {}).get('mission_client_status', 'Not collected')}",
+        f"- Final mission server status: {report.get('final_mission_status', 'Not collected')}",
+        f"- Git branch / commit at report processing: {report.get('workspace_provenance', {}).get('git_branch') or 'Not collected'} / {report.get('workspace_provenance', {}).get('git_commit') or 'Not collected'}",
+        f"- Configuration hashes at processing: {json.dumps(report.get('workspace_provenance', {}).get('configuration_sha256_at_processing_time', {}), sort_keys=True) or 'Not collected'}",
+        "- Wall-clock mission duration: Not collected (bundle creation time is not mission end time).",
+        "- Robot/sensor model, world, software versions, and random seed: Not collected unless supplied in bundle metadata.",
         "",
         "## Mission results",
         "",
@@ -511,6 +806,46 @@ def render_readable_report(report):
         distance_text = f"{distance:.2f} m" if isinstance(distance, (int, float)) else "not available"
         explanation = str(item.get("outcome_reason", "—")).replace("|", "\\|").replace("\n", " ")
         lines.append(f"| {item.get('name', 'Destination')} | {item.get('status', 'unknown')} | {distance_text} | {explanation} |")
+    commands = report.get("final_commands", mis22.get("command_outcomes", []))
+    status_counts = {status: sum(command.get("status") == status for command in commands)
+                     for status in ("FINISHED", "FAILED", "ABORTED", "WAITING", "RUNNING", "PAUSED")}
+    lines.extend(["", "### Command summary", "",
+                  f"- Total commands: {len(commands)}; completed: {status_counts['FINISHED']}; "
+                  f"failed: {status_counts['FAILED']}; aborted: {status_counts['ABORTED']}."])
+    lines.extend(["", "## Command outcomes", "", "| Command ID | Status | Failure reason |", "|---:|---|---|"])
+    for command in commands:
+        reason = str(command.get("failure_reason") or "—").replace("|", "\\|").replace("\n", " ")
+        lines.append(f"| {command.get('command_id', 'unknown')} | {command.get('status', 'unknown')} | {reason} |")
+    if not commands:
+        lines.append("| — | No command outcomes recorded | — |")
+    command_timing = report.get("command_timing", [])
+    if command_timing:
+        lines.extend(["", "### Command elapsed times", "", "| Command ID | Status | Start | End | Elapsed |", "|---:|---|---:|---:|---:|"])
+        for item in command_timing:
+            start_s = (item["start_rosbag_ns"] - report["started_at_rosbag_ns"]) / 1e9 if item.get("start_rosbag_ns") is not None else None
+            end_s = (item["end_rosbag_ns"] - report["started_at_rosbag_ns"]) / 1e9
+            elapsed = f"{item['elapsed_s']:.3f} s" if item.get("elapsed_s") is not None else "not available"
+            lines.append(f"| {item['command_id']} | {item['status']} | {f'{start_s:.3f} s' if start_s is not None else 'unknown'} | {end_s:.3f} s | {elapsed} |")
+    leg_metrics = report.get("per_command_leg_metrics", [])
+    if leg_metrics:
+        lines.extend(["", "### Per-waypoint leg metrics", "",
+                      "Distance is integrated from odometry. Moving/stopped durations are estimates from cmd_vel samples (gaps capped at 0.25 s). Plan-message count is a replan proxy, not a confirmed planner-replan event.",
+                      "| Command / target | Duration | Planned distance | Actual distance | Moving / stopped | Mean / max speed | Plan messages |",
+                      "|---|---:|---:|---:|---:|---:|---:|"])
+        for leg in leg_metrics:
+            target = leg.get("target") or {}
+            coords = (f" ({target['latitude']:.6f}, {target['longitude']:.6f})"
+                      if target.get("latitude") is not None and target.get("longitude") is not None else "")
+            duration = f"{leg['elapsed_s']:.2f} s" if leg.get("elapsed_s") is not None else "—"
+            distance = f"{leg['actual_distance_m']:.2f} m" if leg.get("actual_distance_m") is not None else "—"
+            planned = f"{leg['planned_distance_m']:.2f} m" if leg.get("planned_distance_m") is not None else "—"
+            mean_speed = f"{leg['mean_speed_mps']:.2f}" if leg.get("mean_speed_mps") is not None else "—"
+            max_speed = f"{leg['max_speed_mps']:.2f}" if leg.get("max_speed_mps") is not None else "—"
+            label = f"Command {leg['command_id']}{coords}"
+            moving = f"{leg['moving_duration_s_estimate']:.1f} / {leg['stopped_duration_s_estimate']:.1f} s"
+            lines.append(f"| {label} | {duration} | {planned} | {distance} | {moving} | {mean_speed} / {max_speed} m/s | {leg['replan_path_messages']} |")
+    else:
+        lines.extend(["", "### Per-waypoint leg metrics", "", "Not available: required command timing or odometry samples were not recorded."])
     lines.extend(["", "## Route selection and changes", ""])
     initial = mis22.get("initial_ordering_decision") or {}
     lines.append(f"- Initial choice: {initial.get('ordering_algorithm', 'not recorded')} — {initial.get('selection_reason', 'No reason recorded.')}")
@@ -532,8 +867,9 @@ def render_readable_report(report):
     else:
         lines.append("No odometry comparison plots were generated for this recording.")
     lines.extend(["", "## Recording and faults", ""])
-    validation = mis21.get("timestamp_validation", {})
-    lines.append(f"- Required data capture check: {validation.get('status', 'not evaluated')}.")
+    lines.append(f"- Data-capture validation: **{validation.get('status', 'not evaluated')}**.")
+    lines.append(f"- MIS-21 summary: {mis21.get('status', 'not evaluated')}.")
+    lines.append(f"- MIS-22 summary: {mis22.get('status', 'not evaluated')}.")
     expected_streams = validation.get("expected_no_overlap_groups", [])
     if expected_streams:
         lines.append("- No messages were expected during this run for: " + ", ".join(expected_streams) + ".")
@@ -541,6 +877,94 @@ def render_readable_report(report):
     for fault in mis22.get("fault_events", []):
         message = str(fault.get("message", "Fault details unavailable.")).replace("|", "\\|").replace("\n", " ")
         lines.append(f"  - {message}")
+    keepout_events = report.get("keepout_events", [])
+    lines.append(f"- Keepout-zone lifecycle events found in rosout: {len(keepout_events)}.")
+    for event in keepout_events:
+        relative_s = (event["timestamp_rosbag_ns"] - report["started_at_rosbag_ns"]) / 1e9
+        lines.append(f"  - {relative_s:.3f} s [{event.get('component', 'unknown')}, severity {event.get('severity', 'unknown')}]: {event.get('message', '')}")
+    if not keepout_events:
+        lines.append("  - No matching keepout lifecycle logs found (not proof that no zone changed).")
+    lines.extend(["", "### Recorded topic message counts", ""])
+    topic_counts = validation.get("topic_message_counts", {})
+    if topic_counts:
+        lines.extend(["| Topic | Messages |", "|---|---:|"])
+        lines.extend(f"| `{topic}` | {count} |" for topic, count in sorted(topic_counts.items()))
+    else:
+        lines.append("No topic message counts were available.")
+    missing = mis21.get("missing_required_topics", [])
+    lines.extend(["", "### Missing required data", ""])
+    if missing:
+        lines.extend(f"- {item}" for item in missing)
+    else:
+        lines.append("- None reported.")
+    lines.extend(["", "## Interventions and scoring", ""])
+    interventions = mis22.get("interventions", {})
+    lines.extend(f"- {label.replace('_', ' ').capitalize()}: {count if count is not None else 'unavailable'}"
+                 for label, count in interventions.items())
+    lines.append(f"- MIS-20: {mis20.get('status', 'not evaluated')}" +
+                 (f" — {mis20.get('reason')}" if mis20.get("reason") else ""))
+    if mis20.get("destination_scores"):
+        lines.extend(["", "| Scored destination | Minimum edge distance | Within 1 m |", "|---|---:|---|"])
+        for score in mis20["destination_scores"]:
+            lines.append(f"| {score.get('name', 'Destination')} | {score.get('minimum_vehicle_edge_distance_m', 'unavailable')} m | {score.get('within_1m', 'unavailable')} |")
+    if mis22.get("not_recorded_or_not_computed"):
+        lines.extend(["", "### Not recorded or not computed", ""])
+        lines.extend(f"- {item}" for item in mis22["not_recorded_or_not_computed"])
+    localization = report.get("fast_lio_localization")
+    lines.extend(["", "## FAST-LIO localization statistics", ""])
+    if localization:
+        frequency = localization.get("mean_update_frequency_hz")
+        summary = (f"; mean update frequency: {frequency:.2f} Hz" if frequency else "")
+        lines.append(f"- Mission-window error CSV samples: {localization['sample_count']}; "
+                     f"duration: {localization['elapsed_duration_s']:.2f} s{summary}.")
+        lines.extend(["", "| Error metric | Mean | Median | RMSE | Std dev | Min | Max | P90 | P95 | P99 |", "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"])
+        for key, label, unit in (("error_x_m", "X position", "m"), ("error_y_m", "Y position", "m"),
+                                 ("error_z_m", "Z position", "m"), ("error_xy_m", "Horizontal position", "m"),
+                                 ("error_3d_m", "3D position", "m"), ("error_roll_deg", "Roll", "deg"),
+                                 ("error_pitch_deg", "Pitch", "deg"), ("error_yaw_deg", "Yaw", "deg"),
+                                 ("error_rotation_deg", "Rotation angle", "deg")):
+            values = localization.get(key)
+            if values:
+                cells = [f"{values[name]:.4f} {unit}" for name in
+                         ("mean", "median", "rmse", "stddev", "min", "max", "p90", "p95", "p99")]
+                lines.append(f"| {label} | " + " | ".join(cells) + " |")
+        sync = localization.get("timestamp_offset_ms")
+        if sync:
+            lines.append(f"- FAST-LIO/ground-truth timestamp offset: {sync['mean']:.2f} ms mean, {sync['p95']:.2f} ms P95, {sync['max']:.2f} ms max.")
+        else:
+            lines.append("- FAST-LIO/ground-truth timestamp offset: Not collected.")
+        lengths = localization.get("trajectory_lengths_m") or {}
+        if lengths:
+            lines.append("- Trajectory lengths: " + ", ".join(
+                f"{name.replace('_', ' ')} {length:.2f} m" for name, length in lengths.items()
+            ) + ".")
+        drift = localization.get("final_drift")
+        if drift:
+            lines.append(f"- Final aligned drift: horizontal {drift['error_xy_m']:.4f} m, "
+                         f"3D {drift['error_3d_m']:.4f} m, rotation {drift['error_rotation_deg']:.4f} deg.")
+        drift_per_m = localization.get("horizontal_drift_per_ground_truth_meter")
+        lines.append(f"- Horizontal drift per ground-truth meter: {drift_per_m:.6f} m/m." if drift_per_m is not None
+                     else "- Horizontal drift per ground-truth meter: Not available.")
+    else:
+        lines.append("Mission-window FAST-LIO error statistics unavailable (CSV missing or no aligned samples).")
+    full_localization = report.get("fast_lio_full_recording")
+    if full_localization:
+        lines.append(f"- Full-recording comparison: {full_localization['sample_count']} samples over "
+                     f"{full_localization['elapsed_duration_s']:.2f} s; CSV `{Path(full_localization['csv_path']).name}`.")
+    lines.extend(["", "## Navigation, obstacle, and system performance data", "",
+                  "- Navigation planning/controller timings, replan/recovery counts, velocity distributions, and collision-monitor interventions: Not collected as structured metrics in this report.",
+                  "- Keepout update history, cloud age/latency, and costmap update delays: Not collected as structured metrics in this report.",
+                  "- Per-process CPU/memory, host utilization, swap, real-time factor, and process restarts: Not collected in the rosbag; these require concurrent system sampling during the run."])
+    lines.extend(["", "## Mission timeline", ""])
+    timeline = report.get("mission_timeline", [])
+    if timeline:
+        lines.extend(["| Bag time | Event | Command | Status | Details |", "|---:|---|---:|---|---|"])
+        for event in timeline:
+            time_s = (event["timestamp_rosbag_ns"] - report["started_at_rosbag_ns"]) / 1e9
+            details = str(event.get("detail", "—")).replace("|", "\\|").replace("\n", " ")
+            lines.append(f"| {time_s:.3f} s | {event.get('event', 'event')} | {event.get('command_id') or '—'} | {event.get('status') or '—'} | {details} |")
+    else:
+        lines.append("No mission event rows were available.")
     caveats = report.get("caveats", [])
     if caveats:
         lines.extend(["", "## Notes", ""])
@@ -559,6 +983,7 @@ def main():
     parser.add_argument("--route", type=Path, help="Copy the route/waypoint JSON into the bundle")
     parser.add_argument("--odom-topic", default="/terrascout1/odom")
     parser.add_argument("--cmd-vel-topic", default="/terrascout1/cmd_vel")
+    parser.add_argument("--mppi-output-topic", help="Recorded raw MPPI output topic; omit if unknown or not recorded")
     parser.add_argument("--teleop-topic", default="/terrascout1/teleop_takeover")
     parser.add_argument("--safety-topic", default="/terrascout1/platform/safety_stop")
     parser.add_argument("--autonomy-lock-topic", default="/terrascout1/autonomy_lock")
@@ -592,8 +1017,7 @@ def main():
     else:
         args.out_dir = Path(args.out_dir)
     states = load_states(args.bag, args.state_topic)
-    metrics, topic_types, topic_counts = load_metric_samples(
-        args.bag, [args.odom_topic, args.cmd_vel_topic, args.teleop_topic, args.safety_topic,
+    requested_topics = [args.odom_topic, args.cmd_vel_topic, args.teleop_topic, args.safety_topic,
                    args.state_topic, args.autonomy_lock_topic, args.estop_topic,
                    args.estop_lock_topic, args.rosout_topic,
                    args.ground_truth_topic, args.datum_topic, args.waypoints_topic,
@@ -602,6 +1026,10 @@ def main():
                    "/terrascout1/fixposition/odometry_enu",
                    "/terrascout1/fixposition/odometry_llh", "/terrascout1/fast_lio/odometry",
                    "/terrascout1/obstacle_points", "/terrascout1/ground_points"]
+    if args.mppi_output_topic:
+        requested_topics.append(args.mppi_output_topic)
+    metrics, topic_types, topic_counts = load_metric_samples(
+        args.bag, requested_topics
     )
     mission_instances = split_mission_instances(states)
     available_ids = sorted({entry["mission_id"] for entry in mission_instances if entry["mission_id"] > 0})
@@ -752,6 +1180,7 @@ def main():
         destination_distances = []
     outcomes_by_command = {item["command_id"]: item for item in command_outcomes}
     fault_events, fault_missing = summarize_faults(mission_metrics, args.rosout_topic)
+    keepout_events = summarize_keepout_events(mission_metrics, args.rosout_topic)
     autonomy_lock_events = count_rising_edges(mission_metrics, args.autonomy_lock_topic)
     estop_events = count_rising_edges(mission_metrics, args.estop_topic)
     estop_lock_events = count_rising_edges(mission_metrics, args.estop_lock_topic)
@@ -816,6 +1245,69 @@ def main():
     if timestamp_validation["status"] == "FAIL":
         missing_metrics.append("MIS-21 timestamp/sample validation failed")
     terminal = final.mission_status in (3, 4, 5)
+    error_csv_candidates = sorted(args.out_dir.glob("*_fast_lio_error.csv"), key=lambda path: path.stat().st_mtime)
+    error_csv = error_csv_candidates[-1] if error_csv_candidates else None
+    lio_samples = metrics.get("/terrascout1/fast_lio/odometry", [])
+    first_lio_stamp_ns = time_ns(lio_samples[0][1].header.stamp) if lio_samples else None
+    mission_elapsed_window = (
+        (max(0.0, (first_stamp - first_lio_stamp_ns) / 1e9),
+         max(0.0, (last_stamp - first_lio_stamp_ns) / 1e9))
+        if first_lio_stamp_ns is not None else None
+    )
+    fast_lio_localization = summarize_error_csv(error_csv, mission_elapsed_window)
+    fast_lio_full_recording = summarize_error_csv(error_csv)
+    mission_timeline = []
+    for event in events:
+        detail = event.get("command_failure_reason") or event.get("failure_reason") or event.get("order_change_reason") or event.get("not_ready_reason") or ""
+        mission_timeline.append({
+            "timestamp_rosbag_ns": int(event["timestamp_rosbag_ns"]),
+            "event": event.get("event", ""),
+            "command_id": event.get("command_id", ""),
+            "status": event.get("command_status") or event.get("mission_status", ""),
+            "detail": detail,
+        })
+    command_timing = summarize_command_timing(events)
+    per_command_leg_metrics = summarize_leg_metrics(
+        command_timing,
+        mission_metrics.get(args.odom_topic, []),
+        mission_metrics.get(args.cmd_vel_topic, []),
+        mission_metrics.get("/terrascout1/plan", []),
+        destinations,
+        first_stamp,
+    )
+    destination_command_ids = {item.get("command_id") for item in destinations
+                               if item.get("command_id") is not None}
+    navigation_intervals = [
+        (item["start_rosbag_ns"], item["end_rosbag_ns"])
+        for item in command_timing
+        if item.get("command_id") in destination_command_ids
+        and item.get("start_rosbag_ns") is not None
+    ]
+    final_velocity = summarize_velocity_stream(
+        mission_metrics.get(args.cmd_vel_topic, []), navigation_intervals
+    )
+    mppi_velocity = (summarize_velocity_stream(
+        mission_metrics.get(args.mppi_output_topic, []), navigation_intervals
+    ) if args.mppi_output_topic and args.mppi_output_topic in mission_metrics else None)
+    per_command_by_id = {item["command_id"]: item for item in per_command_leg_metrics}
+    per_command_velocity = {}
+    for command_id in destination_command_ids:
+        timing = per_command_by_id.get(command_id)
+        if timing and timing.get("start_rosbag_ns") is not None:
+            per_command_velocity[command_id] = summarize_velocity_stream(
+                mission_metrics.get(args.cmd_vel_topic, []),
+                [(timing["start_rosbag_ns"], timing["end_rosbag_ns"])],
+            )
+    for item in per_command_leg_metrics:
+        velocity = per_command_velocity.get(item["command_id"])
+        item["controller_metrics"] = ({
+            "cmd_vel_count": velocity["message_count"],
+            "cmd_vel_mean_frequency_hz": velocity["mean_frequency_hz"],
+            "cmd_vel_p95_interval_ms": velocity["p95_interval_ms"],
+            "cmd_vel_max_interval_ms": velocity["max_interval_ms"],
+            "cmd_vel_gaps_over_100ms": velocity["gaps_over_100ms"],
+            "cmd_vel_zero_velocity_percentage": velocity["zero_velocity_percentage"],
+        } if velocity else None)
     outcome_reasons_present = bool(destinations) and all(
         destination.get("outcome_reason") for destination in destinations
     )
@@ -838,6 +1330,29 @@ def main():
         "mission_failure_reason": getattr(final, "failure_reason", ""),
         "completed_command_ids": completed,
         "mission_event_rows": len(events),
+        "mission_timeline": mission_timeline,
+        "command_timing": command_timing,
+        "per_command_leg_metrics": per_command_leg_metrics,
+        "controller_performance": {
+            "controller_name": "nav2_mppi_controller::MPPIController",
+            "configured_frequency_hz": 20.0,
+            "expected_period_ms": 50.0,
+            "mppi_output": {"topic": args.mppi_output_topic, **mppi_velocity}
+                if mppi_velocity is not None else {"topic": args.mppi_output_topic,
+                    "message_count": None, "mean_frequency_hz": None,
+                    "median_interval_ms": None, "p95_interval_ms": None,
+                    "max_interval_ms": None, "gaps_over_100ms": None,
+                    "gaps_over_200ms": None},
+            "final_cmd_vel": {"topic": args.cmd_vel_topic, **final_velocity},
+            "controller_diagnostics": summarize_controller_diagnostics(
+                mission_metrics, args.rosout_topic
+            ),
+        },
+        "bundle_metadata": bundle_metadata,
+        "workspace_provenance": workspace_provenance(Path(__file__).resolve().parents[4]),
+        "fast_lio_localization": fast_lio_localization,
+        "fast_lio_full_recording": fast_lio_full_recording,
+        "keepout_events": keepout_events,
         "artifacts": {
             key: matches[0].name if (matches := sorted(args.out_dir.glob(pattern))) else None
             for key, pattern in {

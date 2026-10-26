@@ -76,6 +76,8 @@ def main() -> int:
     parser.add_argument("--bag", type=Path, help="bag directory; defaults to newest completed recording")
     parser.add_argument("--out-dir", type=Path, help="explicit results bundle directory; by default match the latest tester bundle created before the recording")
     parser.add_argument("--state-topic", default="/terrascout1/mission_state")
+    parser.add_argument("--mission-id", type=int, help="select a mission ID in the recording")
+    parser.add_argument("--mission-instance", type=int, help="select a run instance for the mission ID")
     parser.add_argument("--show-trajectory", action="store_true")
     parser.add_argument(
         "--headless", action="store_true",
@@ -108,7 +110,12 @@ def main() -> int:
     comparison = [sys.executable, str(SCRIPT_DIR / "compare_fast_lio_gt.py"), str(bag), "--out-dir", str(out_dir)]
     if args.show_trajectory and not args.headless:
         comparison.append("--show-trajectory")
-    subprocess.run(comparison, cwd=WORKSPACE_ROOT, check=True)
+    comparison_result = subprocess.run(
+        comparison, cwd=WORKSPACE_ROOT, check=False, capture_output=True, text=True
+    )
+    print(comparison_result.stdout, end="")
+    if comparison_result.stderr:
+        print(comparison_result.stderr, file=sys.stderr, end="")
 
     try:
         bag_in_container = Path("/workspace") / bag.relative_to(WORKSPACE_ROOT)
@@ -119,13 +126,77 @@ def main() -> int:
         "python3", "/workspace/src/terrascout_navigation/terrascout_navigation/scripts/report_mission_bag.py", str(bag_in_container),
         "--out-dir", str(out_dir_in_container), "--state-topic", args.state_topic,
     ]
+    if args.mission_id is not None:
+        report.extend(["--mission-id", str(args.mission_id)])
+    if args.mission_instance is not None:
+        report.extend(["--mission-instance", str(args.mission_instance)])
     container_command = [
         "docker", "run", "--rm", "--user", f"{os.getuid()}:{os.getgid()}",
         "--workdir", "/workspace", "--volume", f"{WORKSPACE_ROOT}:/workspace",
         "sage-sim:latest", "bash", "-lc",
-        "source /opt/ros/jazzy/setup.bash && source install/setup.bash >/dev/null 2>&1 && " + shlex.join(report),
+        "source /opt/ros/jazzy/setup.bash && source install/setup.bash && " + shlex.join(report),
     ]
-    subprocess.run(container_command, cwd=WORKSPACE_ROOT, check=True)
+    report_result = subprocess.run(
+        container_command, cwd=WORKSPACE_ROOT, check=False, capture_output=True, text=True
+    )
+    print(report_result.stdout, end="")
+    if report_result.stderr:
+        print(report_result.stderr, file=sys.stderr, end="")
+
+    report_path = out_dir / "mission_report.md"
+    processing_details = [
+        "",
+        "## Processing and FAST-LIO comparison details",
+        "",
+        f"- Bag: `{bag}`",
+        f"- Results bundle: `{out_dir}`",
+        f"- Comparison command: `{shlex.join(comparison)}`",
+        f"- Comparison exit code: `{comparison_result.returncode}`",
+        f"- Report command: `{shlex.join(report)}`",
+        f"- Report/setup exit code: `{report_result.returncode}`",
+        "",
+        "### Analysis output",
+        "",
+        "Complete standard output and diagnostics from FAST-LIO/ground-truth comparison and mission-report processing:",
+        "",
+        "#### FAST-LIO / ground-truth comparison — stdout",
+        "",
+        "```text",
+        comparison_result.stdout.strip() or "(no output)",
+        "```",
+        "",
+        "#### FAST-LIO / ground-truth comparison — stderr",
+        "",
+        "```text",
+        comparison_result.stderr.strip() or "(no diagnostics)",
+        "```",
+        "",
+        "#### Mission report generation — stdout",
+        "",
+        "```text",
+        report_result.stdout.strip() or "(no output)",
+        "```",
+        "",
+        "#### Mission report generation — stderr / setup diagnostics",
+        "",
+        "```text",
+        report_result.stderr.strip() or "(no diagnostics)",
+        "```",
+        "",
+    ]
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    base_report = report_path.read_text(encoding="utf-8") if report_path.exists() else ""
+    marker = "## Processing and FAST-LIO comparison details"
+    if marker in base_report:
+        base_report = base_report.split(marker, maxsplit=1)[0].rstrip() + "\n"
+    with report_path.open("w", encoding="utf-8") as stream:
+        stream.write(base_report.rstrip() + "\n\n" + "\n".join(processing_details).lstrip())
+    if comparison_result.returncode != 0 or report_result.returncode != 0:
+        print(
+            "Processing completed with errors; see mission_report.md for captured diagnostics.",
+            file=sys.stderr,
+        )
+        return 1
     print(f"Completed both analyses in {out_dir}")
     return 0
 

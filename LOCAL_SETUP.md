@@ -204,7 +204,11 @@ This is a draft for review, not evidence of approval. Before assessed trials, th
 3. **Unreachable destination / recovery period:** allow the configured Nav2 behavior-tree recoveries to complete, then make one mission-layer retry of the same waypoint after the configured 2.0 s delay (`waypoint_retry_limit: 1`). If that attempt also fails, record the command ID, outcome, and failure reason; mark it failed and continue to the next eligible positional command when `continue_after_waypoint_failure` is true. If no eligible destination remains, fail the mission rather than silently treating the route as complete. The approved procedure must confirm that this retry window is the intended recovery period.
 4. **Restoration:** after operator takeover or process restart, keep autonomy suspended. Resume only after explicit operator request, valid/fresh localization, navigation readiness, and a fresh successful path to the current destination. Do not automatically resume or navigate home while localization is invalid.
 
-**Approval record:** `Pending — obtain project-owner approval before marking MPR-09 or MIS-15 complete.` Run and retain tests for each rule, then conduct scripted simulation checks and the required assessed-trial validation. MIS-06 likewise remains unverified against its 2 s stop deadline until a recorded fault-injection test measures localization-loss detection through confirmed zero motion.
+**Approval record:** `Pending — obtain project-owner approval before marking MPR-09 or MIS-15 complete.` Run and retain tests for each rule, then conduct scripted simulation checks and the required assessed-trial validation.
+
+**MIS-06 simulation evidence (2026-10-23):** In `runs/20261023T083815Z-sim-record.1/recordings/terrascout1/rosbag2_2026_10_23-08_38_21/`, the first recorded invalid localization fix was at 55.300 s. Ground-truth odometry fell below 0.02 m/s by 55.588 s, approximately 0.29 s after the invalid fix, within the 2 s simulation limit. This does not establish physical-robot compliance or complete the required assessed fault-trial recording; retain those as outstanding verification.
+
+For simulation fault injection, call `/terrascout1/gnss_shim/set_localization_fault` with `std_srvs/srv/SetBool` (`data: true` to inject, `data: false` to clear). Localization loss suspends the mission; resuming requires restored valid localization, navigation readiness, a fresh path, and an explicit operator request.
 
 ## 6. Quick Checklist for a New Development PC
 

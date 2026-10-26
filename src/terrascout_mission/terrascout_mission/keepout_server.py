@@ -102,6 +102,7 @@ class KeepoutServer(Node):
         )
         self._datum: NavSatFix | None = None
         self._zones: dict[str, KeepoutZone] = {}
+        self._cached_obstacle_cloud: PointCloud2 | None = None
         # All configured zones are active together; retained active_label snapshots
         # are accepted for backward compatibility only.
         namespace = self.get_namespace().strip("/") or "default"
@@ -120,7 +121,7 @@ class KeepoutServer(Node):
         self.create_service(SetKeepoutZone, "set_keepout_zone", self._on_set_keepout_zone)
         self.create_service(GetKeepoutZone, "get_keepout_zone", self._on_get_keepout_zone)
         self.create_service(ListKeepoutZones, "list_keepout_zones", self._on_list_keepout_zones)
-        self.create_timer(self._publish_period_s, self._republish_active_zone)
+        self.create_timer(self._publish_period_s, self._publish_cached_obstacles)
 
     def _on_datum(self, msg: NavSatFix) -> None:
         if self._datum is None:
@@ -268,7 +269,15 @@ class KeepoutServer(Node):
             self._marker_pub.publish(
                 self._marker(zone=zone, label=zone.label, marker_id=marker_id)
             )
-        self._obstacle_pub.publish(self._pointcloud(points))
+        self._cached_obstacle_cloud = self._pointcloud(points)
+        self._publish_cached_obstacles()
+
+    def _publish_cached_obstacles(self) -> None:
+        """Refresh cached static keepout points for Nav2's decaying voxel layer."""
+        if self._cached_obstacle_cloud is None:
+            return
+        self._cached_obstacle_cloud.header.stamp = self.get_clock().now().to_msg()
+        self._obstacle_pub.publish(self._cached_obstacle_cloud)
 
     def _pointcloud(self, points: list[tuple[float, float, float]]) -> PointCloud2:
         msg = PointCloud2()

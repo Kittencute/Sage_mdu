@@ -511,7 +511,7 @@ class GroundMissionServer(Node):
             and -180.0 <= msg.longitude <= 180.0
         ):
             self._spawn_position = (msg.latitude, msg.longitude)
-    def _update_readiness(self) -> None:
+    def _update_readiness(self, localization_reason: str | None = None) -> None:
         reasons = []
         if not self._navigation_states:
             reasons.append(f"waiting for the node list of {self._navigation_manager}")
@@ -526,7 +526,8 @@ class GroundMissionServer(Node):
             reasons.append("navigate_to_pose server unavailable")
         if self._datum is None:
             reasons.append(f"no datum on {self._datum_topic}")
-        localization_reason = self._localization_reason(check_tf=False)
+        if localization_reason is None:
+            localization_reason = self._localization_reason(check_tf=False)
         if localization_reason:
             reasons.append(localization_reason)
         if self._taken_over:
@@ -1106,7 +1107,8 @@ class GroundMissionServer(Node):
     def _tick(self) -> None:
         self._cancel_navigation_after_restart()
         self._track_navigation()
-        self._update_readiness()
+        localization_reason = self._localization_reason(check_tf=False)
+        self._update_readiness(localization_reason)
         mission = self._mission
         if mission is None:
             return
@@ -1114,7 +1116,6 @@ class GroundMissionServer(Node):
         if mission.goal is not None and mission.goal.is_cancel_requested:
             self._abort(mission, CANCELLED_BY_MANAGER)
         if mission.phase in (Phase.NAVIGATING, Phase.HOLDING):
-            localization_reason = self._localization_reason(check_tf=False)
             if localization_reason:
                 reason = f"{LOCALIZATION_FAULT_PREFIX} {localization_reason}"
                 self.get_logger().warning(
@@ -1158,7 +1159,7 @@ class GroundMissionServer(Node):
             return
         self._keepout_snapshot_mtime_ns = updated_mtime
         try:
-            _, error = self._keepout_zones()
+            zones, error = self._keepout_zones()
         except Exception as error:  # Keep mission state unchanged on transient read errors.
             self.get_logger().warning(f"keepout update ignored: {error}")
             return
@@ -1178,7 +1179,6 @@ class GroundMissionServer(Node):
             and mission.status[i] == MissionState.COMMAND_WAITING
         ]
         old_order = [command.id for command in commands]
-        zones, _ = self._keepout_zones()
         # Destinations inside the updated zone are excluded before reordering.
         for slot in future_slots:
             command = commands[slot]

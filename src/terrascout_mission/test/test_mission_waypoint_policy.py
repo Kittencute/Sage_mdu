@@ -419,7 +419,7 @@ def test_runtime_localization_fault_suspends_active_mission_and_reports_reason()
     server._mission = mission
     server._cancel_navigation_after_restart = lambda: None
     server._track_navigation = lambda: None
-    server._update_readiness = lambda: None
+    server._update_readiness = lambda localization_reason=None: None
     server._process_keepout_update = lambda current: None
     server._localization_reason = lambda check_tf: "position fix is stale"
     server._set_deadline = lambda current, seconds, reason: None

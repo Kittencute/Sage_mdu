@@ -89,7 +89,7 @@
           offset_from_furthest: 5
           threshold_to_consider: 0.5
         PreferForwardCritic:
-          cost_weight: 2.0
+          cost_weight: 4.0
         # Restore the prior forward acceleration; keep the 1 m/s speed cap.
         ax_max: 2.5
         ax_min: -2.5

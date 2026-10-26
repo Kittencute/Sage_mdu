@@ -13,6 +13,7 @@ Status: research software. The simulation is verified end to end; the physical T
 - **Forest simulation:** terrain generation keeps tree placements inside the 90 m × 90 m terrain and updates tree elevations to follow the generated heightmap. Small and medium pine model variants are available alongside the existing trees, and the forest world and Foxglove view use the updated scene.
 - **Navigation and obstacle handling:** ground segmentation publishes clouds in `base_footprint`, whose origin is at ground level (unlike the elevated `base_link`). The non-ground obstacle cloud is filtered from 0.0 m to +1.5 m in that frame; its input `minZ` stays wide at -1.5 m, and the separate raw cloud remains available for costmap ray-clearing. Points already classified as ground are not restored by this height filter, so root classification still requires validation. Current experimental Nav2 tuning checks path validity at 2 Hz, updates/publishes local costmap at 8/5 Hz and global at 3/2 Hz, uses 0.9 m local and 1.0 m global inflation, and allows 1.0 m/s forward speed. Collision Monitor has outer 30%-slowdown, middle 60%-slowdown, and inner stop polygons. Validate behavior and controller timing in simulation before relying on these experimental settings.
 - **Missions and Foxglove:** mission handling supports ordered/unordered routes, adding and clearing waypoints, Home/return behavior, and mission drafts from map-frame Foxglove clicks. Failed mission legs can be tracked and recovered by the mission server.
+- **Localization fault response:** an invalid or stale localization fix suspends an active mission; resuming requires an explicit request, valid localization, and a fresh path. Simulation supports deliberate localization-fault injection and clearing for verification.
 - **Positioning and setup:** geodesy and GNSS/map alignment were updated, and local setup notes cover machine-specific ROS domain and Gazebo partition values.
 
 The -1.0 m lower obstacle cutoff, route stability at 1 Hz, inflation tuning, root traversal, mission backtracking, and controller timing still require scenario testing. A successful build does not verify those behaviors. Recent runs show repeated Collision Monitor stops and MPPI failures; inspect the obstacle cloud at the stopped pose and validate low-obstacle safety before relying on this cutoff.
@@ -178,6 +179,17 @@ Mission state and keepout-zone definitions are atomically saved under
 restored suspended; autonomy starts locked and requires the explicit resume
 service. The interactive tester includes suspend, state-inspection and restart
 checklist entries for MIS-16/MIS-17.
+
+### Localization fault injection (simulation)
+
+The GNSS shim provides a `std_srvs/srv/SetBool` service for testing localization-loss handling. Set `data: true` to publish an invalid fix and `data: false` to restore simulated fixes:
+
+```sh
+ros2 service call /terrascout1/gnss_shim/set_localization_fault std_srvs/srv/SetBool "{data: true}"
+ros2 service call /terrascout1/gnss_shim/set_localization_fault std_srvs/srv/SetBool "{data: false}"
+```
+
+In the 2026-10-23 simulation recording, the first invalid fix was at 55.300 s and ground-truth odometry was below 0.02 m/s by 55.588 s (about 0.29 s later). This is simulation evidence only; physical-robot verification and the full recorded fault trial remain outstanding.
 
 ### Soft e-stop
 

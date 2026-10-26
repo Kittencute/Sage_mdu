@@ -98,6 +98,9 @@
   - [ ] Verify active-goal cancellation and continuation when a keepout appears over its destination
   - [ ] Verify future destinations inside keepouts are skipped and reported failed
   - [x] Test waypoint failure continuation and terminal behavior in unit tests
+  - [x] Simulation MIS-06 timing check: invalid fix at 55.300 s; ground-truth speed below 0.02 m/s by 55.588 s (~0.29 s)
+  - [ ] Repeat and retain MIS-06 fault-stop evidence in an assessed trial; verify the physical robot separately
+  - [ ] Verify localization-fault suspension, fault clearing, and explicit mission resume in a scripted simulation trial
   - [ ] Check mission range
   - [ ] Edit failed waypoint
   - [ ] Verify GeoJSON waypoint statuses remain consistent with `MissionState` after failure and backtracking

@@ -1,6 +1,7 @@
 from pathlib import Path
 import sys
 from types import SimpleNamespace
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "terrascout_navigation" / "scripts"))
 
@@ -18,7 +19,47 @@ from report_mission_bag import (
     destination_failure_reason,
     split_mission_instances,
     render_readable_report,
+    summarize_command_timing,
+    summarize_error_csv,
+    summarize_leg_metrics,
+    summarize_velocity_stream,
+    summarize_controller_diagnostics,
 )
+
+
+def test_summarize_velocity_stream_cadence_and_motion_values():
+    def twist(vx, wz=0.0):
+        return SimpleNamespace(linear=SimpleNamespace(x=vx, y=0.0),
+                               angular=SimpleNamespace(z=wz))
+
+    result = summarize_velocity_stream([
+        (0, twist(0.5)), (50_000_000, twist(0.0)),
+        (170_000_000, twist(-0.2, -0.1)),
+    ])
+    assert result["message_count"] == 3
+    assert result["mean_frequency_hz"] == pytest.approx(2 / 0.17)
+    assert result["median_interval_ms"] == pytest.approx(85.0)
+    assert result["p95_interval_ms"] == pytest.approx(120.0)
+    assert result["gaps_over_100ms"] == 1
+    assert result["mean_absolute_linear_velocity_mps"] == pytest.approx(0.7 / 3)
+    assert result["zero_velocity_percentage"] == pytest.approx(100 / 3)
+
+
+def test_summarize_velocity_stream_filters_to_active_intervals():
+    def twist(vx):
+        return SimpleNamespace(linear=SimpleNamespace(x=vx, y=0.0),
+                               angular=SimpleNamespace(z=0.0))
+
+    result = summarize_velocity_stream([(0, twist(1)), (10, twist(2)), (20, twist(3))], [(10, 20)])
+    assert result["message_count"] == 2
+    assert result["max_absolute_linear_velocity_mps"] == 3
+
+
+def test_controller_diagnostics_are_null_if_rosout_not_recorded():
+    assert summarize_controller_diagnostics({}, "/rosout") == {
+        "frequency_warnings": None, "controller_failures": None,
+        "controller_recoveries": None,
+    }
 
 
 def test_summarize_motion_integrates_distance_and_counts_events():
@@ -217,10 +258,27 @@ def test_readable_report_uses_plain_language_sections_and_tables():
         "mission_run_id": "mission-2-run-1-start-10ns",
         "final_mission_status": "FINISHED",
         "duration_s": 12.0,
+        "mission_run_id": "mission-2-run-1-start-10ns",
+        "started_at_rosbag_ns": 10,
+        "ended_at_rosbag_ns": 22,
+        "time_base": "rosbag_receive_time",
+        "recording": "/bags/test",
+        "state_topic": "/terrascout1/mission_state",
+        "mission_failure_reason": "",
+        "final_commands": [{"command_id": 3, "status": "COMPLETED", "failure_reason": ""}],
+        "command_timing": [{"command_id": 3, "status": "FINISHED", "start_rosbag_ns": 10,
+                     "end_rosbag_ns": 22, "elapsed_s": 12.0}],
+        "mission_timeline": [{"timestamp_rosbag_ns": 22, "event": "command_status_changed",
+                      "command_id": 3, "status": "FINISHED", "detail": ""}],
+        "bundle_metadata": {"mission_name": "Test mission", "ordering_mode": "ordered"},
+        "fast_lio_localization": None,
+        "mis20": {"status": "PASS", "destination_scores": []},
         "caveats": [],
         "artifacts": {"trajectory_comparison": "comparison.png",
                   "position_error": None, "orientation_error": None},
-        "mis21": {"timestamp_validation": {"status": "PASS"}},
+        "mis21": {"status": "RECORDED_STREAMS_PRESENT_UNVERIFIED",
+              "missing_required_topics": [],
+              "timestamp_validation": {"status": "PASS", "topic_message_counts": {"/odom": 5}}},
         "mis22": {
             "metrics": {"distance_driven_m": 4.2, "stop_events": 1,
                         "teleop_takeover_events": 0, "safety_stop_events": 0},
@@ -231,6 +289,8 @@ def test_readable_report_uses_plain_language_sections_and_tables():
             "initial_ordering_decision": {"ordering_algorithm": "input order",
                                           "selection_reason": "Preserve operator order."},
             "order_changes": [], "fault_events": [],
+            "interventions": {"teleop_takeover_rising_edges": 0},
+            "not_recorded_or_not_computed": [],
         },
     }
     text = render_readable_report(report)
@@ -239,7 +299,86 @@ def test_readable_report_uses_plain_language_sections_and_tables():
     assert "[Trajectory comparison](comparison.png)" in text
     assert "**Run:**" not in text
     assert "| WP 1 | completed | 0.00 m | Reached |" in text
-    assert "MIS-22" not in text
+    assert "## Command outcomes" in text
+    assert "mission-2-run-1-start-10ns" in text
+    assert "Recorded topic message counts" in text
+    assert "MIS-20: PASS" in text
+    assert "MIS-22 summary" in text
+    assert "## Mission timeline" in text
+    assert "Command elapsed times" in text
+    assert "Test mission" in text
+    assert "Per-process CPU/memory" in text
+    assert "Mission client submission status" in text
+    assert "Final mission server status" in text
+    assert "Per-waypoint leg metrics" in text
+
+
+def test_summarize_command_timing_uses_status_transition_timestamps():
+    rows = [
+        {"event": "command_status_changed", "command_id": "5", "command_status": "RUNNING",
+         "timestamp_rosbag_ns": "1000000000"},
+        {"event": "command_status_changed", "command_id": "5", "command_status": "FINISHED",
+         "timestamp_rosbag_ns": "3500000000", "command_failure_reason": ""},
+    ]
+    assert summarize_command_timing(rows) == [{
+        "command_id": 5, "status": "FINISHED", "start_rosbag_ns": 1000000000,
+        "end_rosbag_ns": 3500000000, "elapsed_s": 2.5, "failure_reason": "",
+    }]
+
+
+def test_summarize_leg_metrics_uses_odom_speed_and_path_samples():
+    def odom(x):
+        return SimpleNamespace(pose=SimpleNamespace(pose=SimpleNamespace(
+            position=SimpleNamespace(x=x, y=0.0))))
+
+    def twist(v):
+        return SimpleNamespace(linear=SimpleNamespace(x=v, y=0.0),
+                               angular=SimpleNamespace(z=0.0))
+
+    def path():
+        return SimpleNamespace(poses=[
+            SimpleNamespace(pose=SimpleNamespace(position=SimpleNamespace(x=x, y=0.0)))
+            for x in (0.0, 1.0, 2.0)
+        ])
+
+    metrics = summarize_leg_metrics(
+        [{"command_id": 2, "status": "FINISHED", "start_rosbag_ns": 0,
+          "end_rosbag_ns": 2_000_000_000, "elapsed_s": 2.0}],
+        [(0, odom(0.0)), (1_000_000_000, odom(1.0)), (2_000_000_000, odom(2.0))],
+        [(0, twist(0.0)), (1_000_000_000, twist(0.5)), (2_000_000_000, twist(1.0))],
+        [(100, path()), (200, path())],
+        [{"command_id": 2, "latitude": 47.0, "longitude": 8.0}],
+        0,
+    )
+    assert metrics[0]["actual_distance_m"] == 2.0
+    assert metrics[0]["mean_speed_mps"] == 0.75
+    assert metrics[0]["max_speed_mps"] == 1.0
+    assert metrics[0]["stopped_velocity_samples"] == 1
+    assert metrics[0]["replan_path_messages"] == 2
+    assert metrics[0]["planned_distance_m"] == 2.0
+
+
+def test_summarize_error_csv_reports_distribution_statistics(tmp_path):
+    path = tmp_path / "errors.csv"
+    path.write_text(
+        "elapsed_s,error_xy_m,error_3d_m,nearest_gt_stamp_dt_s\n"
+        "0,1,2,0.01\n1,3,4,0.03\n", encoding="utf-8"
+    )
+    summary = summarize_error_csv(path)
+    assert summary["sample_count"] == 2
+    assert summary["error_xy_m"]["mean"] == 2
+    assert summary["error_xy_m"]["rmse"] == pytest.approx((5 ** 0.5))
+    assert summary["mean_update_frequency_hz"] == 1
+    assert summary["timestamp_offset_ms"]["mean"] == 20
+    assert summary["trajectory_lengths_m"] is None
+
+
+def test_summarize_error_csv_can_select_mission_elapsed_window(tmp_path):
+    path = tmp_path / "mission.csv"
+    path.write_text("elapsed_s,error_xy_m\n0,0.1\n1,0.2\n2,0.8\n", encoding="utf-8")
+    summary = summarize_error_csv(path, (0.5, 1.5))
+    assert summary["sample_count"] == 1
+    assert summary["error_xy_m"]["mean"] == 0.2
 
 
 def test_point_polygon_distance_is_zero_inside_and_distance_to_edge_outside():
